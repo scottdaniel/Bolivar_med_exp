@@ -1,0 +1,6 @@
+Taxa	Domain	Phylum	Class	Order	Family	Genus	LR	Flag	No	BodySite	Year
+D_0_Bacteria.D_1_Proteobacteria.D_2_Gammaproteobacteria.D_3_Betaproteobacteriales.D_4_Burkholderiaceae.D_5_Lautropia	Bacteria	Proteobacteria	Gammaproteobacteria	Betaproteobacteriales	Burkholderiaceae	Lautropia	1.13116656858362	TRUE	1	Mouth	2016
+D_0_Bacteria.D_1_Bacteroidetes.D_2_Bacteroidia.D_3_Flavobacteriales.D_4_Weeksellaceae.D_5_Bergeyella	Bacteria	Bacteroidetes	Bacteroidia	Flavobacteriales	Weeksellaceae	Bergeyella	0.945953038299721	TRUE	2	Mouth	2016
+D_0_Bacteria.D_1_Bacteroidetes.D_2_Bacteroidia.D_3_Bacteroidales.D_4_Prevotellaceae.D_5_Prevotella.7	Bacteria	Bacteroidetes	Bacteroidia	Bacteroidales	Prevotellaceae	Prevotella.7	-1.84402497207963	FALSE	3	Mouth	2016
+D_0_Bacteria.D_1_Bacteroidetes.D_2_Bacteroidia.D_3_Bacteroidales.D_4_Prevotellaceae.D_5_Prevotella	Bacteria	Bacteroidetes	Bacteroidia	Bacteroidales	Prevotellaceae	Prevotella	-1.68493538055752	FALSE	4	Mouth	2016
+D_0_Bacteria.D_1_Fusobacteria.D_2_Fusobacteriia.D_3_Fusobacteriales.D_4_Leptotrichiaceae.D_5_uncultured	Bacteria	Fusobacteria	Fusobacteriia	Fusobacteriales	Leptotrichiaceae	uncultured	-1.57962084926287	FALSE	5	Mouth	2016

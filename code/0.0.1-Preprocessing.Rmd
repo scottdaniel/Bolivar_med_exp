@@ -1,0 +1,211 @@
+---
+title: "Preprocessing"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, warning = FALSE, message = FALSE)
+# Loading library here
+library(tidyverse)
+library(biomformat)
+library(qiime2R)
+library(knitr)
+
+
+# set path
+opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+source("~/Dropbox/42-JCHWANG-RUTGERS/Projects-Rutgers/Src/utils.R")
+setwd(rprojroot::find_rstudio_root_file())
+
+path_ana <- "~/Dropbox/41-JCHWANG-NYU/Projects/10-Bolivar2018/3-16SDataProcessing"
+
+sessionInfo()
+```
+
+
+# 2020-04-15 Fix issues with mapping file
+In the original mapping file, some subject specific information was inconsistent across different body sites from the same subject.
+
+Therefore, both manual and automatical fix has been performed.
+
+```{r}
+Mapping_VL <- read.delim("../Mapping_Bolivar_Villagers-20181108.txt",stringsAsFactors = F)
+# (md5): `47c35f47f6e9ce45e0bf9c052525eee2`
+
+
+Mapping_VL[is.na(Mapping_VL)] <- "NA"
+
+## remove village "Kadanskaduinha" becaue very few subjects, and those without age information
+Mapping_MS_VL <- Mapping_VL %>% filter(Village != "Kadansakaduinha", Age!="NA")
+Mapping_MS_VL$Ethnicity[which(Mapping_MS_VL$Ethnicity=="Yekwana")] <- "YEKWANA"
+```
+
+Identify which subjects have problems
+```{r}
+Mapping_VL_subject <- Mapping_MS_VL %>% select(-c(1:6, 9:10, 13, 14, 64:69, 88)) %>% distinct() %>% mutate(sub_unique = paste(Year, Ethnicity, Village, House_ID, Family_ID, Subject_ID, sep = "-"))
+
+# check more than 1 records per subject
+## Ethnicity, Village, House_ID, Family_ID, Subject_ID should identify an individual
+Temp_more_records <- Mapping_VL_subject %>% group_by(Year, Ethnicity, Village, House_ID, Family_ID, Subject_ID) %>% filter(n()>1)
+Temp_more_records_check <- Temp_more_records %>% group_by(Year, Ethnicity, Village, House_ID, Family_ID, Subject_ID, sub_unique) %>% summarise_all(n_distinct) %>% ungroup() %>% select_if(.predicate = function(x){any(x>1)})
+
+Temp_tbl <- data.frame(Sub = character(), Col = character(), Value = character(), stringsAsFactors = F)
+for (f in colnames(Temp_more_records_check)[8:61]){
+  Temp <- Temp_more_records_check %>% filter(get(f)>1)
+  Temp2 <- merge(Temp[, 1:7], Mapping_MS_VL, by = c("Year", "Ethnicity", "Village", "House_ID", "Family_ID", "Subject_ID"))
+  Temp3 <- Temp2 %>% select(sub_unique, f) %>% group_by_at(vars(1, 2)) %>% summarise(N = n()) %>% mutate(Pct = N/sum(N), Value = paste(get(f), Pct, sep = ":")) %>% summarise(Value = paste(Value, collapse = ";")) %>% mutate(Col = f) %>% rename(Sub = sub_unique)
+  Temp_tbl <- rbind(Temp_tbl, Temp3)
+  # Temp2 <- merge(Mapping_MS_VL, Temp[, 1:6], by = c("Year", "Ethnicity", "Village", "House_ID", "Family_ID", "Subject_ID"))
+  # browser()
+}
+
+```
+
+Perform automatic revising of the mapping file after manual fixing some of the issues.
+```{r eval=FALSE}
+Work <- Mapping_MS_VL %>% mutate(sub_unique = paste(Year, Ethnicity, Village, House_ID, Family_ID, Subject_ID, sep = "-"))
+
+# first fix the situation that there are only 2 values and 1 of them is NA
+Work_d1 <- Work %>% group_by(sub_unique) %>% mutate_at(vars(c(46:87)), ~revise_para_1(.))
+## check if it works
+Work_d1_check_1 <- Work_d1 %>% select(-c(1:6, 9:10, 13, 14, 64:69, 88)) %>% distinct()
+Work_d1_check_2 <- Work_d1_check_1 %>% group_by(Year, Ethnicity, Village, House_ID, Family_ID, Subject_ID) %>% filter(n()>1)
+Work_d1_check_3 <- Work_d1_check_2 %>% group_by(Year, Ethnicity, Village, House_ID, Family_ID, Subject_ID, sub_unique) %>% summarise_all(n_distinct) %>% ungroup() %>% select_if(.predicate = function(x){any(x>1)})
+## Yes, it works.
+
+# Update Mapping_MS_VL
+Mapping_MS_VL <- Work_d1 %>% ungroup() %>% select(-sub_unique)
+
+# Update the original mapping
+Mapping_VL <- rbind(Mapping_MS_VL, Mapping_VL %>% filter(!SampleID %in% Mapping_MS_VL$SampleID))
+write.table(Mapping_VL, file = "../Mapping_Bolivar_Villagers-20200416-jw.txt", quote = F, row.names = F, sep = "\t")
+
+revise_para_1 <- function(x){
+    # this function is to revise the mapping file so that the same subject would have the same parasite result consistently, this function could only handle the situation when there are only 2 values and 1 of them is NA
+    # argument:
+    #   x, the vector of values for a specific column
+    if (n_distinct(x)==2 & ("NA" %in% x)) {
+        x[x=="NA"] <- x[x!="NA"][1]
+    }
+    return(x)
+}
+
+```
+
+# Import mapping files
+Mapping files that were used in this analysis are:
+
+* `Mapping_Bolivar_Villagers-20200416-jw.txt` (md5): `209e8fd3fc0ffefc133b44d66c4f58ae`
+* `Mapping_Bolivar_Visitor_2015.txt` (md5): `6c9acd9c8af33ba4b400af436c8d90aa`
+* `Mapping_Bolivar_Visitor_2016.txt` (md5): `4a4ece643bd971989da75abcdf4dd0e2`
+
+```{r}
+Mapping_files <- paste0("../", c("Mapping_Bolivar_Villagers-20200416-jw.txt", "Mapping_Bolivar_Visitor_2015.txt", "Mapping_Bolivar_Visitor_2016.txt"))
+Mapping_import <- lapply(Mapping_files, FUN = function(x){read.delim(x, stringsAsFactors = F)})
+names(Mapping_import) <- c("VL", "VR15", "VR16")
+```
+
+## Create study specific mapping file
+### Mapping_MS_Bolivar_Amerin1dians
+(1) Included all Amerindians except for those who did not has Age information
+(2) Included only the visitor's baseline samples
+```{r}
+Work <- Mapping_import
+Work_VR15_BL <- Work$VR15 %>% group_by(Body_Site, Subject_ID) %>% filter(Days_of_study==min(Days_of_study)) %>% ungroup()
+Work_VR16_BL <- Work$VR16 %>% group_by(Body_Site, Subject_ID) %>% filter(Days_of_study==min(Days_of_study)) %>% ungroup()
+
+# House keeping
+Work_VR15_BL$Ethnicity <- "Visitors"
+Work_VR16_BL$Ethnicity <- "Visitors"
+Work_VR15_BL$Village <- "Visitors"
+Work_VR16_BL$Village <- "Visitors"
+Work_VR15_BL$House_ID <- "Visitors"
+Work_VR16_BL$House_ID <- "Visitors"
+Work_VR15_BL$Family_ID <- "Visitors"
+Work_VR16_BL$Family_ID <- "Visitors"
+
+
+Mapping_common_header <- Reduce(intersect, list(colnames(Mapping_import$VL), colnames(Work_VR15_BL), colnames(Work_VR16_BL)))
+Mapping_MS_Urban <- do.call("rbind", lapply(list(Mapping_import$VL, Work_VR15_BL, Work_VR16_BL), FUN = function(x){x[Mapping_common_header]})) %>% filter(Village != "Kadansakaduinha", !is.na(Age))
+Mapping_MS_Urban$Ethnicity[which(Mapping_MS_Urban$Ethnicity=="Yekwana")] <- "YEKWANA"
+save(Mapping_MS_Urban, file = "output/Mapping_MS_Urban.Rdata")
+```
+
+
+# Alpha diversity
+```{r, eval=FALSE}
+# These procedure has already been completed previously.
+## QIIME2 alpha output
+path1 <- "../4-Div_dada/export-alpha/"
+path2 <- sapply(list.files(path1), FUN = function(x){paste0(path1, x, "/data/alpha-diversity.tsv")})
+alpha_import <- lapply(path2, FUN = function(x){read.table(x, header = T, sep = "\t", row.names = 1, stringsAsFactors = F)})
+alpha <- merge_iter(alpha_import, by = 0)
+save(alpha, file = "output/alpha_imported_all-20190722.Rdata")
+```
+
+# Beta diversity
+
+```{r, eval=FALSE}
+path1 <- "../4-Div_dada/export-beta/"
+path2 <- sapply(list.files(path1), FUN = function(x){paste0(path1, x, "/data/distance-matrix.tsv")})
+beta_import <- lapply(path2, FUN = function(x){read.table(x, header = T, sep = "\t", row.names = 1, stringsAsFactors = F)})
+
+# Unweighted unifrac
+DM_uu <- beta_import[["unweighted_unifrac"]] %>% as.matrix() %>% as.dist()
+save(DM_uu, file = "output/DM_uu_all_20180530.Rdata")
+
+# Weighted unifrac
+DM_wu <- beta_import$weighted_unifrac %>% as.matrix() %>% as.dist()
+save(DM_wu, file = "output/DM_wu_all_20180530.Rdata")
+
+DM_bc <- beta_import$bray_curtis %>% as.matrix() %>% as.dist()
+save(DM_bc, file = "output/DM_bc_all_20200604.Rdata")
+```
+
+# Decoide
+## run decoide
+```{r}
+load("output/Mapping_MS_Urban.Rdata")
+Yrs <- c("2015", "2016")
+BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand")
+for (BB in BodySites) {
+    # BB = "Feces"
+    for (YY in Yrs){
+        # YY = "2015"
+        Work_dat <- Mapping_MS_Urban %>% filter(Body_Site==BB, Year==YY)
+        write.table(Work_dat, file = paste0("output/Mapping_MS_Urban_", BB, "_", YY, ".txt"), sep = "\t", quote = F, row.names = F)
+    }
+}
+```
+
+```{bash}
+# qiime2-2019.7 with deicode installed
+for f in /Users/Jincheng/Projects/bolivar_main_2020/output/Mapping_MS_Urban*.txt; do name=$(basename $f ".txt"); qiime feature-table filter-samples --i-table /Users/Jincheng/Dropbox/41-JCHWANG-NYU/Projects/10-Bolivar2018/3-16SDataProcessing/3-Dada/merged-otu.qza --m-metadata-file $f --o-filtered-table /Users/Jincheng/Dropbox/41-JCHWANG-NYU/Projects/10-Bolivar2018/3-16SDataProcessing/4.1-Deicode/${name}_ft.qza; done &>Deicode.log &
+
+for f in /Users/Jincheng/Dropbox/41-JCHWANG-NYU/Projects/10-Bolivar2018/3-16SDataProcessing/4.1-Deicode/*_ft.qza; do name=$(basename $f "_ft.qza"); qiime deicode rpca --i-table $f --p-min-feature-count 10 --p-min-sample-count 500 --p-n-components 3 --o-biplot /Users/Jincheng/Dropbox/41-JCHWANG-NYU/Projects/10-Bolivar2018/3-16SDataProcessing/4.1-Deicode/${name}_ord.qza --o-distance-matrix /Users/Jincheng/Dropbox/41-JCHWANG-NYU/Projects/10-Bolivar2018/3-16SDataProcessing/4.1-Deicode/${name}_dist.qza; done &>>Deicode.log &
+```
+
+```{r, eval=FALSE}
+path1 <- paste0(path_ana, "/4.1-Deicode/")
+ord_qzas <- lapply(list.files(path = path1, pattern = "Mapping_MS_Urban.*ord.qza", full.names = T), read_qza)
+
+names(ord_qzas) <- list.files(path = path1, pattern = "Mapping_MS_Urban.*ord.qza") %>% gsub(pattern = "Mapping_MS_Urban_|_ord.qza", replacement = "", .)
+
+dist_qzas <- lapply(list.files(path = path1, pattern = "Mapping_MS_Urban.*dist.qza", full.names = T), read_qza)
+names(dist_qzas) <- list.files(path = path1, pattern = "Mapping_MS_Urban.*dist.qza") %>% gsub(pattern = "Mapping_MS_Urban_|_dist.qza", replacement = "", .)
+
+save(ord_qzas, file = "output/Ord_deicode_all_20200706.Rdata")
+save(dist_qzas, file = "output/DM_deicode_all_20200604.Rdata")
+
+```
+
+# Feature table
+```{r, eval = FALSE}
+# Biom table
+dat <- read_hdf5_biom("../4-Div_data/export-rarefied_table/data/feature-table.biom") # bddf0151-4eac-4835-9213-2867f2c70c74
+biom <- biom(dat) %>% biom_data() %>% as.matrix() %>% as.data.frame()
+save(biom, file = "output/FT_rarefied_full_11142019.Rdata")
+```
+
