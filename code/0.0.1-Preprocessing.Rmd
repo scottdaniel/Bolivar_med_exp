@@ -15,10 +15,7 @@ library(knitr)
 
 
 # set path
-opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
 source("~/Dropbox/42-JCHWANG-RUTGERS/Projects-Rutgers/Src/utils.R")
-setwd(rprojroot::find_rstudio_root_file())
-
 path_ana <- "~/Dropbox/41-JCHWANG-NYU/Projects/10-Bolivar2018/3-16SDataProcessing"
 
 sessionInfo()
@@ -31,7 +28,7 @@ In the original mapping file, some subject specific information was inconsistent
 Therefore, both manual and automatical fix has been performed.
 
 ```{r}
-Mapping_VL <- read.delim("../Mapping_Bolivar_Villagers-20181108.txt",stringsAsFactors = F)
+Mapping_VL <- read.delim(paste0(path_ana, "/Mapping_Bolivar_Villagers-20181108.txt"), stringsAsFactors = F)
 # (md5): `47c35f47f6e9ce45e0bf9c052525eee2`
 
 
@@ -80,7 +77,7 @@ Mapping_MS_VL <- Work_d1 %>% ungroup() %>% select(-sub_unique)
 
 # Update the original mapping
 Mapping_VL <- rbind(Mapping_MS_VL, Mapping_VL %>% filter(!SampleID %in% Mapping_MS_VL$SampleID))
-write.table(Mapping_VL, file = "../Mapping_Bolivar_Villagers-20200416-jw.txt", quote = F, row.names = F, sep = "\t")
+write.table(Mapping_VL, file = paste0(path_ana, "/Mapping_Bolivar_Villagers-20200416-jw.txt"), quote = F, row.names = F, sep = "\t")
 
 revise_para_1 <- function(x){
     # this function is to revise the mapping file so that the same subject would have the same parasite result consistently, this function could only handle the situation when there are only 2 values and 1 of them is NA
@@ -102,7 +99,7 @@ Mapping files that were used in this analysis are:
 * `Mapping_Bolivar_Visitor_2016.txt` (md5): `4a4ece643bd971989da75abcdf4dd0e2`
 
 ```{r}
-Mapping_files <- paste0("../", c("Mapping_Bolivar_Villagers-20200416-jw.txt", "Mapping_Bolivar_Visitor_2015.txt", "Mapping_Bolivar_Visitor_2016.txt"))
+Mapping_files <- paste0(path_ana, "/", c("Mapping_Bolivar_Villagers-20200416-jw.txt", "Mapping_Bolivar_Visitor_2015.txt", "Mapping_Bolivar_Visitor_2016.txt"))
 Mapping_import <- lapply(Mapping_files, FUN = function(x){read.delim(x, stringsAsFactors = F)})
 names(Mapping_import) <- c("VL", "VR15", "VR16")
 ```
@@ -130,7 +127,7 @@ Work_VR16_BL$Family_ID <- "Visitors"
 Mapping_common_header <- Reduce(intersect, list(colnames(Mapping_import$VL), colnames(Work_VR15_BL), colnames(Work_VR16_BL)))
 Mapping_MS_Urban <- do.call("rbind", lapply(list(Mapping_import$VL, Work_VR15_BL, Work_VR16_BL), FUN = function(x){x[Mapping_common_header]})) %>% filter(Village != "Kadansakaduinha", !is.na(Age))
 Mapping_MS_Urban$Ethnicity[which(Mapping_MS_Urban$Ethnicity=="Yekwana")] <- "YEKWANA"
-save(Mapping_MS_Urban, file = "output/Mapping_MS_Urban.Rdata")
+saveRDS(Mapping_MS_Urban, file = "../data/Mapping_MS_Urban.Rds")
 ```
 
 
@@ -138,17 +135,17 @@ save(Mapping_MS_Urban, file = "output/Mapping_MS_Urban.Rdata")
 ```{r, eval=FALSE}
 # These procedure has already been completed previously.
 ## QIIME2 alpha output
-path1 <- "../4-Div_dada/export-alpha/"
+path1 <- paste0(path_ana, "/4-Div_dada/export-alpha/")
 path2 <- sapply(list.files(path1), FUN = function(x){paste0(path1, x, "/data/alpha-diversity.tsv")})
 alpha_import <- lapply(path2, FUN = function(x){read.table(x, header = T, sep = "\t", row.names = 1, stringsAsFactors = F)})
 alpha <- merge_iter(alpha_import, by = 0)
-save(alpha, file = "output/alpha_imported_all-20190722.Rdata")
+saveRDS(alpha, file = "../data/alpha_imported_all.RDS")
 ```
 
 # Beta diversity
 
 ```{r, eval=FALSE}
-path1 <- "../4-Div_dada/export-beta/"
+path1 <- paste0(path_ana, "/4-Div_dada/export-beta/")
 path2 <- sapply(list.files(path1), FUN = function(x){paste0(path1, x, "/data/distance-matrix.tsv")})
 beta_import <- lapply(path2, FUN = function(x){read.table(x, header = T, sep = "\t", row.names = 1, stringsAsFactors = F)})
 
