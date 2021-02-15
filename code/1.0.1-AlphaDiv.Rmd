@@ -1,0 +1,1997 @@
+---
+title: "Alpha Diversity"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+library(knitr)
+options(max.print="75")
+opts_chunk$set(echo = TRUE, cache = TRUE, warning = FALSE, prompt=FALSE, tidy = TRUE, comment = NA, message = FALSE)
+opts_knit$set(width=75)
+
+# Loading library here
+library(tidyverse)
+library(extrafont)
+library(ggpubr)
+library(MASS)
+library(segmented)
+library(agricolae)
+
+# set path
+source("~/Dropbox/42-JCHWANG-RUTGERS/Projects-Rutgers/Src/utils.R")
+
+```
+## Initial setup
+**Setup color index**
+```{r}
+# Exposure level
+Urban_color <- c("#66c2a5", "#fc8d62", "#8da0cb")
+names(Urban_color) <- c("Low", "Medium", "High")
+print(Urban_color)
+#plot(1:3, 1:3, col = Urban_color, pch = 16, cex = 4)
+# Ethnicity
+Ethnicity_color <- gg_color_hue(3)
+names(Ethnicity_color) <- c("SANEMA", "YEKWANA", "Visitors")
+print(Ethnicity_color)
+
+Sanemas <- c("Chajuranha", "Mosenahanha", "Kuyuwininha", "Shianana-Jiyakwanha", "Washudihanha", "Sudukuma")
+Yekwana <- c("Kanarakuni", "Fiyakwanha")
+```
+
+**Import the data**
+```{r}
+# Alpha diversities
+alpha = readRDS("../data/alpha_imported_all.RDS")
+```
+```{r class.source='fold-show'}
+# Mapping
+## This mapping files include all villagers and baseline of visitors of all body sites
+mt_ms = readRDS("../data/Mapping_MS_Urban.Rds")
+Mapping_work <- mt_ms %>% mutate(Urban = ifelse(Ethnicity=="SANEMA", "Low", ifelse(Village=="Fiyakwanha", "Low", ifelse(SampleGroup=="Visitors", "High", "Medium"))) %>% factor(levels = c("Low", "Medium", "High")), Age_num = as.numeric(Age), Age_num = ifelse(is.na(Age_num), as.numeric(gsub(pattern = "_months", replacement = "", Age, ignore.case = T))/12, Age_num), Age_grp1 = ifelse(Age_num>=18, "Adults", "Children"))
+Mapping_work$Age_num[Mapping_work$Age=="4_Days"] <- 0
+Mapping_work$Age_num[Mapping_work$Age=="1_day"] <- 0
+```
+
+**Set up the Analysis**
+```{r}
+Work <- merge(alpha, Mapping_work, by = 1) %>% mutate(Age_grp2 = case_when(Age_num<=3 ~ "Age_0-3", Age_num<=8 ~ "Age_3-8", Age_num<18 ~ "Age_8-18", T ~ "Adults"))
+```
+
+```{r}
+#Work$Body_Site %>% factor %>% levels
+Indices <- colnames(alpha[2:5])
+Yrs <- c("2015", "2016")
+BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand")
+```
+
+## Impacts on exposure level
+### Feces
+#### Model seleection
+**We first check the faith_pd which described the overall complexity of the microbial community.**
+```{r}
+BB = "Feces"
+AA = "faith_pd"
+# Year 2015
+YY = "2015"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers")
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+The best model from 2015 includes Urban, Age, Urban:Age interaction and Gender (in decreasing importance).
+
+```{r}
+# Year 2016
+YY = "2016"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers")
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+The best model from 2016 includes Urban, Age, Urban:Age interaction (in decreasing importance), but Gender was not there.
+
+
+So we will fitting the data with Urban, Age, Urban:Age interaction, and Gender for both years to keep unity.
+```{r}
+# Final model
+lm_models <- list()
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers")
+    fit.final <- lm(as.formula(paste0(AA, " ~ Age_num + Urban + Age_num:Urban + Gender")), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.final) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.final) %>% print()
+    lm_models[[YY]] <- fit.final
+}
+```
+
+Next we perform the broken stick regression based on the selected final model
+```{r}
+for (YY in Yrs){
+    #YY = "2016"
+    fit.seg <- segmented(lm_models[[YY]], seg.Z = ~ Age_num, psi = c(3))
+    summary(fit.seg)
+    plot(fit.seg$fitted.values, fit.seg$residuals)
+    plot(fit.seg$model$faith_pd, fit.seg$fitted.values)
+    plot(fit.seg$model$Age_num, hatvalues(fit.seg))
+    plot(fit.seg$model$Age_num, cooks.distance(fit.seg))
+    plot(hatvalues(fit.seg), fit.seg$residuals)
+}
+```
+
+
+It seems from the residual plots that the point with faith_pd smaller than 10 is dragging the curve down and causing non-random residual. 
+
+```{r}
+Work %>% filter(Body_Site==BB, faith_pd<12, SampleGroup=="Villagers")
+```
+It does appears that many baby are outliers, so re-do the analysis without baby.
+
+### Modeling without babies.
+#### faith_pd without baby
+```{r}
+BB = "Feces"
+AA = "faith_pd"
+
+Work_dat <- Work %>% filter(Body_Site==BB, SampleGroup=="Villagers", Age_num>=1)
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_point(size = 1.5) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_color_manual(breaks = names(Exp_color), values = Urban_color) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+```
+```{r}
+# Year 2015
+YY = "2015"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+```{r}
+# Year 2016
+YY = "2016"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+```{r}
+# Final linear model
+lm_models <- list()
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.final <- lm(paste0(AA, " ~ Age_num + Urban + Gender"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.final) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.final) %>% print()
+    lm_models[[YY]] <- fit.final
+}
+```
+Next we perform the broken stick regression based on the selected final model
+```{r}
+stick_models <- list()
+for (YY in Yrs){
+    #YY = "2016"
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.seg <- segmented(lm_models[[YY]], seg.Z = ~ Age_num, psi = 9)
+    summary(fit.seg) %>% print()
+    plot(fit.seg$fitted.values, fit.seg$residuals)
+    plot(fit.seg$model$faith_pd, fit.seg$fitted.values)
+    plot(fit.seg$model$Age_num, hatvalues(fit.seg))
+    plot(fit.seg$model$Age_num, cooks.distance(fit.seg))
+    plot(hatvalues(fit.seg), fit.seg$residuals)
+    anova(fit.seg, lm_models[[YY]]) %>% print()
+    davies.test(lm_models[[YY]], seg.Z = ~ Age_num, k = 10) %>% print()
+    confint.segmented(fit.seg) %>% print()
+    qqnorm(fit.seg$residuals)
+    slope(fit.seg) %>% print()
+    stick_models[[YY]] <- fit.seg
+}
+```
+
+Making plots
+```{r}
+dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
+dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
+
+dat15 <- cbind(dat15, predict(stick_models[["2015"]], newdata = dat15, interval = "confidence"))
+dat16 <- cbind(dat16, predict(stick_models[["2016"]], newdata = dat16, interval = "confidence"))
+
+Work_dat <-  rbind(dat15, dat16)
+
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban, alpha = Gender), alpha = 0.5, color = NA) +
+    geom_point(size = 1.5) +
+    geom_line(aes(y = fit, linetype = Gender)) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_linetype_manual(values = c("solid", "dashed")) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_alpha_manual(values = c(0.3, 0.1)) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+
+```
+
+```{r}
+# lm model children between 1-8
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1, Age_num<=8)
+    fit.child <- lm(paste0(AA, " ~ Age_num + Urban + Gender"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.child) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.child) %>% print()
+}
+```
+
+#### observed_otu without baby
+```{r}
+BB = "Feces"
+AA = "observed_otus"
+
+Work_dat <- Work %>% filter(Body_Site==BB, SampleGroup=="Villagers", Age_num>=1)
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_point(size = 1.5) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+```
+```{r}
+# Year 2015
+YY = "2015"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+```{r}
+# Year 2016
+YY = "2016"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+```{r}
+# Final linear model
+lm_models <- list()
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.final <- lm(paste0(AA, " ~ Age_num + Urban + Gender"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.final) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.final) %>% print()
+    lm_models[[YY]] <- fit.final
+}
+```
+Next we perform the broken stick regression based on the selected final model
+```{r}
+stick_models <- list()
+for (YY in Yrs){
+    #YY = "2015"
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.seg <- segmented(lm_models[[YY]], seg.Z = ~ Age_num, psi = 9)
+    summary(fit.seg) %>% print()
+    plot(fit.seg$fitted.values, fit.seg$residuals)
+    plot(fit.seg$model$observed_otus, fit.seg$fitted.values)
+    anova(fit.seg, lm_models[[YY]]) %>% print()
+    davies.test(lm_models[[YY]], seg.Z = ~ Age_num, k = 10) %>% print()
+    confint.segmented(fit.seg) %>% print()
+    qqnorm(fit.seg$residuals)
+    slope(fit.seg) %>% print()
+    stick_models[[YY]] <- fit.seg
+}
+```
+
+Making plots
+```{r}
+dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
+dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
+
+dat15 <- cbind(dat15, predict(stick_models[["2015"]], newdata = dat15, interval = "confidence"))
+dat16 <- cbind(dat16, predict(stick_models[["2016"]], newdata = dat16, interval = "confidence"))
+
+Work_dat <-  rbind(dat15, dat16)
+
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban, alpha = Gender), alpha = 0.5, color = NA) +
+    geom_point(size = 1.5) +
+    geom_line(aes(y = fit, linetype = Gender)) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_linetype_manual(values = c("solid", "dashed")) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_alpha_manual(values = c(0.3, 0.1)) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+
+set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+```
+
+```{r}
+# lm model children
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1, Age_num<=8)
+    fit.child <- lm(paste0(AA, " ~ Age_num + Urban + Gender"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.child) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.child) %>% print()
+}
+```
+
+
+#### shannon without baby
+```{r}
+BB = "Feces"
+AA = "shannon"
+
+Work_dat <- Work %>% filter(Body_Site==BB, SampleGroup=="Villagers", Age_num>=1)
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_point(size = 1.5) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+```
+```{r}
+# Year 2015
+YY = "2015"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+```{r}
+# Year 2016
+YY = "2016"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+```{r}
+# Final linear model
+lm_models <- list()
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.final <- lm(paste0(AA, " ~ Age_num + Urban + Gender"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.final) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.final) %>% print()
+    lm_models[[YY]] <- fit.final
+}
+```
+
+Next we perform the broken stick regression based on the selected final model
+
+```{r}
+stick_models <- list()
+for (YY in Yrs){
+    #YY = "2015"
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.seg <- segmented(lm_models[[YY]], seg.Z = ~ Age_num, psi = 9)
+    summary(fit.seg) %>% print()
+    plot(fit.seg$fitted.values, fit.seg$residuals)
+    plot(fit.seg$model$shannon, fit.seg$fitted.values)
+    anova(fit.seg, lm_models[[YY]]) %>% print()
+    davies.test(lm_models[[YY]], seg.Z = ~ Age_num, k = 10) %>% print()
+    confint.segmented(fit.seg) %>% print()
+    qqnorm(fit.seg$residuals)
+    slope(fit.seg) %>% print()
+    stick_models[[YY]] <- fit.seg
+}
+```
+
+Making plots
+```{r}
+dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
+dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
+
+dat15 <- cbind(dat15, predict(stick_models[["2015"]], newdata = dat15, interval = "confidence"))
+dat16 <- cbind(dat16, predict(stick_models[["2016"]], newdata = dat16, interval = "confidence"))
+
+Work_dat <-  rbind(dat15, dat16)
+
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban, alpha = Gender), alpha = 0.5, color = NA) +
+    geom_point(size = 1.5) +
+    geom_line(aes(y = fit, linetype = Gender)) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_linetype_manual(values = c("solid", "dashed")) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_alpha_manual(values = c(0.3, 0.1)) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+
+set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+```
+
+```{r}
+# lm model children
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1, Age_num<=8)
+    fit.child <- lm(paste0(AA, " ~ Age_num + Urban + Gender"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.child) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.child) %>% print()
+}
+```
+
+### Mouth
+#### faith_pd without baby
+```{r}
+BB = "Mouth"
+AA = "faith_pd"
+
+Work_dat <- Work %>% filter(Body_Site==BB, SampleGroup=="Villagers", Age_num>=1)
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_point(size = 1.5) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+```
+```{r}
+# Year 2015
+YY = "2015"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+
+For year 2015, only urban and age is significant in determing the faith_pd
+
+
+```{r}
+# Year 2016
+YY = "2016"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+In 2016, In addition to Age_num and Urban, the interaction term between age_num and urban is also significnat at 0.05.
+
+For consistency, only age_num and urban were included.
+
+
+```{r}
+# Final linear model
+lm_models <- list()
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.final <- lm(paste0(AA, " ~ Age_num + Urban"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.final) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.final) %>% print()
+    lm_models[[YY]] <- fit.final
+}
+```
+
+Next we perform the broken stick regression based on the selected final model
+```{r}
+stick_models <- list()
+for (YY in Yrs){
+    #YY = "2015"
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.seg <- segmented(lm_models[[YY]], seg.Z = ~ Age_num, psi = 9)
+    summary(fit.seg) %>% print()
+    plot(fit.seg$fitted.values, fit.seg$residuals)
+    plot(fit.seg$model$faith_pd, fit.seg$fitted.values)
+    qqnorm(fit.seg$residuals)
+
+    if (!"segmented" %in% class(fit.seg)){
+        print(paste(YY, BB, AA, paste(YY, BB, AA, "same as lm model", sep = "-"), sep = "-"))
+    } else {
+        anova(fit.seg, lm_models[[YY]]) %>% print()
+        davies.test(lm_models[[YY]], seg.Z = ~ Age_num, k = 10) %>% print()
+        confint.segmented(fit.seg) %>% print()
+        stick_models[[YY]] <- fit.seg
+        slope(fit.seg) %>% print()
+    }
+
+
+}
+```
+
+For mouth, broken stick regression did not significantly better than a simple multiple linear regession. So following graph is made using lm.
+
+Making plots
+```{r}
+dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
+dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
+
+dat15 <- cbind(dat15, predict(lm_models[["2015"]], newdata = dat15, interval = "confidence"))
+dat16 <- cbind(dat16, predict(lm_models[["2016"]], newdata = dat16, interval = "confidence"))
+
+Work_dat <-  rbind(dat15, dat16)
+
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban)) +
+    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban), alpha = 0.5, color = NA) +
+    geom_point(aes(shape = Gender), size = 1.5) +
+    geom_line(aes(y = fit)) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_linetype_manual(values = c("solid", "dashed")) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+```
+
+```{r}
+# lm model children between 1-8
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1, Age_num<=8)
+    fit.child <- lm(paste0(AA, " ~ Age_num + Urban"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.child) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.child) %>% print()
+}
+```
+
+#### observed_otu without baby
+```{r}
+BB = "Mouth"
+AA = "observed_otus"
+
+Work_dat <- Work %>% filter(Body_Site==BB, SampleGroup=="Villagers", Age_num>=1)
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_point(size = 1.5) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+```
+```{r}
+# Year 2015
+YY = "2015"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+```{r}
+# Year 2016
+YY = "2016"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+```{r}
+# Final linear model
+lm_models <- list()
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.final <- lm(paste0(AA, " ~ Age_num + Urban"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.final) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.final) %>% print()
+    lm_models[[YY]] <- fit.final
+}
+```
+Next we perform the broken stick regression based on the selected final model
+```{r}
+stick_models <- list()
+for (YY in Yrs){
+    #YY = "2015"
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.seg <- segmented(lm_models[[YY]], seg.Z = ~ Age_num, psi = 9)
+    summary(fit.seg) %>% print()
+    plot(fit.seg$fitted.values, fit.seg$residuals)
+    plot(fit.seg$model$observed_otus, fit.seg$fitted.values)
+    qqnorm(fit.seg$residuals)
+
+    if (!"segmented" %in% class(fit.seg)){
+        print(paste(YY, BB, AA, "same as lm model", sep = "-"))
+    } else {
+        anova(fit.seg, lm_models[[YY]]) %>% print()
+        davies.test(lm_models[[YY]], seg.Z = ~ Age_num, k = 10) %>% print()
+        confint.segmented(fit.seg) %>% print()
+        stick_models[[YY]] <- fit.seg
+        slope(fit.seg) %>% print()
+    }
+
+
+}
+```
+
+Making plots
+```{r}
+dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
+dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
+
+dat15 <- cbind(dat15, predict(lm_models[["2015"]], newdata = dat15, interval = "confidence"))
+dat16 <- cbind(dat16, predict(lm_models[["2016"]], newdata = dat16, interval = "confidence"))
+
+Work_dat <-  rbind(dat15, dat16)
+
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban, alpha = Gender), alpha = 0.5, color = NA) +
+    geom_point(size = 1.5) +
+    geom_line(aes(y = fit, linetype = Gender)) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_linetype_manual(values = c("solid", "dashed")) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_alpha_manual(values = c(0.3, 0.1)) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+```
+
+```{r}
+# lm model children
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1, Age_num<=8)
+    fit.child <- lm(paste0(AA, " ~ Age_num + Urban"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.child) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.child) %>% print()
+}
+```
+
+
+#### shannon without baby
+```{r}
+BB = "Mouth"
+AA = "shannon"
+
+Work_dat <- Work %>% filter(Body_Site==BB, SampleGroup=="Villagers", Age_num>=1)
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_point(size = 1.5) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+```
+```{r}
+# Year 2015
+YY = "2015"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+```{r}
+# Year 2016
+YY = "2016"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+```{r}
+# Final linear model
+lm_models <- list()
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.final <- lm(paste0(AA, " ~ Age_num + Urban"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.final) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.final) %>% print()
+    lm_models[[YY]] <- fit.final
+}
+```
+
+Next we perform the broken stick regression based on the selected final model
+
+```{r}
+stick_models <- list()
+for (YY in Yrs){
+    #YY = "2015"
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.seg <- segmented(lm_models[[YY]], seg.Z = ~ Age_num, psi = 9)
+    summary(fit.seg) %>% print()
+    plot(fit.seg$fitted.values, fit.seg$residuals)
+    plot(fit.seg$model$shannon, fit.seg$fitted.values)
+    qqnorm(fit.seg$residuals)
+
+    if (!"segmented" %in% class(fit.seg)){
+        print(paste(YY, BB, AA, "same as lm model", sep = "-"))
+    } else {
+        anova(fit.seg, lm_models[[YY]]) %>% print()
+        davies.test(lm_models[[YY]], seg.Z = ~ Age_num, k = 10) %>% print()
+        confint.segmented(fit.seg) %>% print()
+        stick_models[[YY]] <- fit.seg
+        slope(fit.seg) %>% print()
+    }
+
+
+}
+```
+
+Making plots
+```{r}
+dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
+dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
+
+dat15 <- cbind(dat15, predict(lm_models[["2015"]], newdata = dat15, interval = "confidence"))
+dat16 <- cbind(dat16, predict(lm_models[["2016"]], newdata = dat16, interval = "confidence"))
+
+Work_dat <-  rbind(dat15, dat16)
+
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban)) +
+    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban), alpha = 0.5, color = NA) +
+    geom_point(aes(shape = Gender), size = 1.5) +
+    geom_line(aes(y = fit, linetype = Gender)) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_linetype_manual(values = c("solid", "dashed")) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_alpha_manual(values = c(0.3, 0.1)) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+```
+
+```{r}
+# lm model children
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1, Age_num<=8)
+    fit.child <- lm(paste0(AA, " ~ Age_num + Urban"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.child) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.child) %>% print()
+}
+```
+
+### Nose
+#### faith_pd without baby
+```{r}
+BB = "Nose"
+AA = "faith_pd"
+
+Work_dat <- Work %>% filter(Body_Site==BB, SampleGroup=="Villagers", Age_num>=1)
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_point(size = 1.5) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+```
+```{r}
+# Year 2015
+YY = "2015"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+
+For year 2015, only urban and age is significant in determing the faith_pd
+
+
+```{r}
+# Year 2016
+YY = "2016"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+In 2016, Age_num and Urban as well.
+
+For consistency, only age_num and urban were included.
+
+```{r}
+# Final linear model
+lm_models <- list()
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.final <- lm(paste0(AA, " ~ Age_num + Urban"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.final) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.final) %>% print()
+    lm_models[[YY]] <- fit.final
+}
+```
+
+Next we perform the broken stick regression based on the selected final model
+```{r}
+stick_models <- list()
+for (YY in Yrs){
+    #YY = "2015"
+    print(paste0("-------Following is for ", YY, "--------------"))
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.seg <- segmented(lm_models[[YY]], seg.Z = ~ Age_num, psi = 9)
+    summary(fit.seg) %>% print()
+    plot(fit.seg$fitted.values, fit.seg$residuals)
+    plot(fit.seg$model$faith_pd, fit.seg$fitted.values)
+    qqnorm(fit.seg$residuals)
+    if (!"segmented" %in% class(fit.seg)){
+        print(paste(YY, BB, AA, "same as lm model", sep = "-"))
+    } else {
+        anova(fit.seg, lm_models[[YY]]) %>% print()
+        davies.test(lm_models[[YY]], seg.Z = ~ Age_num, k = 10) %>% print()
+        confint.segmented(fit.seg) %>% print()
+        stick_models[[YY]] <- fit.seg
+        slope(fit.seg) %>% print()
+    }
+
+
+}
+```
+
+Making plots
+```{r}
+dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
+dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
+
+dat15 <- cbind(dat15, predict(stick_models[["2015"]], newdata = dat15, interval = "confidence"))
+dat16 <- cbind(dat16, predict(stick_models[["2016"]], newdata = dat16, interval = "confidence"))
+
+Work_dat <-  rbind(dat15, dat16)
+
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban)) +
+    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban), alpha = 0.5, color = NA) +
+    geom_point(aes(shape = Gender), size = 1.5) +
+    geom_line(aes(y = fit)) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_linetype_manual(values = c("solid", "dashed")) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+```
+
+```{r}
+# lm model children between 1-8
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1, Age_num<=8)
+    fit.child <- lm(paste0(AA, " ~ Age_num + Urban"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.child) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.child) %>% print()
+}
+```
+
+#### observed_otu without baby
+```{r}
+BB = "Nose"
+AA = "observed_otus"
+
+Work_dat <- Work %>% filter(Body_Site==BB, SampleGroup=="Villagers", Age_num>=1)
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_point(size = 1.5) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+```
+```{r}
+# Year 2015
+YY = "2015"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+```{r}
+# Year 2016
+YY = "2016"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+```{r}
+# Final linear model
+lm_models <- list()
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.final <- lm(paste0(AA, " ~ Age_num + Urban"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.final) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.final) %>% print()
+    lm_models[[YY]] <- fit.final
+}
+```
+Next we perform the broken stick regression based on the selected final model
+```{r}
+stick_models <- list()
+for (YY in Yrs){
+    #YY = "2015"
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.seg <- segmented(lm_models[[YY]], seg.Z = ~ Age_num, psi = 9)
+    summary(fit.seg) %>% print()
+    plot(fit.seg$fitted.values, fit.seg$residuals)
+    plot(fit.seg$model$observed_otus, fit.seg$fitted.values)
+    qqnorm(fit.seg$residuals)
+
+    if (!"segmented" %in% class(fit.seg)){
+        print(paste(YY, BB, AA, "same as lm model", sep = "-"))
+    } else {
+        anova(fit.seg, lm_models[[YY]]) %>% print()
+        davies.test(lm_models[[YY]], seg.Z = ~ Age_num, k = 10) %>% print()
+        confint.segmented(fit.seg) %>% print()
+        stick_models[[YY]] <- fit.seg
+        slope(fit.seg) %>% print()
+    }
+
+
+}
+```
+
+Making plots
+```{r}
+dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
+dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
+
+dat15 <- cbind(dat15, predict(stick_models[["2015"]], newdata = dat15, interval = "confidence"))
+dat16 <- cbind(dat16, predict(stick_models[["2016"]], newdata = dat16, interval = "confidence"))
+
+Work_dat <-  rbind(dat15, dat16)
+
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban, alpha = Gender), alpha = 0.5, color = NA) +
+    geom_point(size = 1.5) +
+    geom_line(aes(y = fit, linetype = Gender)) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_linetype_manual(values = c("solid", "dashed")) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_alpha_manual(values = c(0.3, 0.1)) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+```
+
+```{r}
+# lm model children
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1, Age_num<=8)
+    fit.child <- lm(paste0(AA, " ~ Age_num + Urban"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.child) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.child) %>% print()
+}
+```
+
+
+#### shannon without baby
+```{r}
+BB = "Nose"
+AA = "shannon"
+
+Work_dat <- Work %>% filter(Body_Site==BB, SampleGroup=="Villagers", Age_num>=1)
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_point(size = 1.5) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+```
+```{r}
+# Year 2015
+YY = "2015"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+```{r}
+# Year 2016
+YY = "2016"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+
+Urban is not significant in both years
+```{r}
+# Final linear model
+lm_models <- list()
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.final <- lm(paste0(AA, " ~ Age_num"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.final) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.final) %>% print()
+    lm_models[[YY]] <- fit.final
+}
+```
+
+Next we perform the broken stick regression based on the selected final model
+
+```{r}
+stick_models <- list()
+for (YY in Yrs){
+    #YY = "2015"
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.seg <- segmented(lm_models[[YY]], seg.Z = ~ Age_num, psi = 9)
+    summary(fit.seg) %>% print()
+    plot(fit.seg$fitted.values, fit.seg$residuals)
+    plot(fit.seg$model$shannon, fit.seg$fitted.values)
+    qqnorm(fit.seg$residuals)
+
+    if (!"segmented" %in% class(fit.seg)){
+        print(paste(YY, BB, AA, "same as lm model", sep = "-"))
+    } else {
+        anova(fit.seg, lm_models[[YY]]) %>% print()
+        davies.test(lm_models[[YY]], seg.Z = ~ Age_num, k = 10) %>% print()
+        confint.segmented(fit.seg) %>% print()
+        stick_models[[YY]] <- fit.seg
+        slope(fit.seg) %>% print()
+    }
+
+
+}
+```
+
+Making plots
+```{r}
+dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
+dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
+
+dat15 <- cbind(dat15, predict(stick_models[["2015"]], newdata = dat15, interval = "confidence"))
+dat16 <- cbind(dat16, predict(stick_models[["2016"]], newdata = dat16, interval = "confidence"))
+
+Work_dat <-  rbind(dat15, dat16)
+
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban)) +
+    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban), alpha = 0.5, color = NA) +
+    geom_point(aes(shape = Gender), size = 1.5) +
+    geom_line(aes(y = fit, linetype = Gender)) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_linetype_manual(values = c("solid", "dashed")) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_alpha_manual(values = c(0.3, 0.1)) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+```
+
+```{r}
+# lm model children
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1, Age_num<=8)
+    fit.child <- lm(paste0(AA, " ~ Age_num + Urban"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.child) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.child) %>% print()
+}
+```
+
+
+### Right_Arm
+#### faith_pd without baby
+```{r}
+BB = "Right_Arm"
+AA = "faith_pd"
+
+Work_dat <- Work %>% filter(Body_Site==BB, SampleGroup=="Villagers", Age_num>=1)
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_point(size = 1.5) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+```
+```{r}
+# Year 2015
+YY = "2015"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+
+For year 2015, only urban and gender is significant in determing the faith_pd
+
+
+```{r}
+# Year 2016
+YY = "2016"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+In 2016, Only Urban
+
+For consistency, only gender and urban were included.
+
+```{r}
+# Final linear model
+lm_models <- list()
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.final <- lm(paste0(AA, " ~ Urban + Gender"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.final) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.final) %>% print()
+    lm_models[[YY]] <- fit.final
+}
+```
+
+
+Making plots
+```{r}
+dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
+dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
+
+dat15 <- cbind(dat15, predict(lm_models[["2015"]], newdata = dat15, interval = "confidence"))
+dat16 <- cbind(dat16, predict(lm_models[["2016"]], newdata = dat16, interval = "confidence"))
+
+Work_dat <-  rbind(dat15, dat16)
+
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban)) +
+    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban), alpha = 0.5, color = NA) +
+    geom_point(aes(shape = Gender), size = 1.5) +
+    geom_line(aes(y = fit, linetype = Gender)) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_linetype_manual(values = c("solid", "dashed")) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+```
+
+
+#### observed_otu without baby
+```{r}
+BB = "Right_Arm"
+AA = "observed_otus"
+
+Work_dat <- Work %>% filter(Body_Site==BB, SampleGroup=="Villagers", Age_num>=1)
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_point(size = 1.5) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+```
+```{r}
+# Year 2015
+YY = "2015"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+```{r}
+# Year 2016
+YY = "2016"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+```{r}
+# Final linear model
+lm_models <- list()
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.final <- lm(paste0(AA, " ~ Urban + Gender"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.final) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.final) %>% print()
+    lm_models[[YY]] <- fit.final
+}
+```
+
+Making plots
+```{r}
+dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
+dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
+
+dat15 <- cbind(dat15, predict(lm_models[["2015"]], newdata = dat15, interval = "confidence"))
+dat16 <- cbind(dat16, predict(lm_models[["2016"]], newdata = dat16, interval = "confidence"))
+
+Work_dat <-  rbind(dat15, dat16)
+
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban, alpha = Gender), alpha = 0.5, color = NA) +
+    geom_point(size = 1.5) +
+    geom_line(aes(y = fit, linetype = Gender)) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_linetype_manual(values = c("solid", "dashed")) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_alpha_manual(values = c(0.3, 0.1)) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+```
+
+#### shannon without baby
+```{r}
+BB = "Right_Arm"
+AA = "shannon"
+
+Work_dat <- Work %>% filter(Body_Site==BB, SampleGroup=="Villagers", Age_num>=1)
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_point(size = 1.5) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+```
+```{r}
+# Year 2015
+YY = "2015"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+```{r}
+# Year 2016
+YY = "2016"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+
+Urban is not significant in both years
+```{r}
+# Final linear model
+lm_models <- list()
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.final <- lm(paste0(AA, " ~ Urban + Gender"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.final) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.final) %>% print()
+    lm_models[[YY]] <- fit.final
+}
+```
+
+
+Making plots
+```{r}
+dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
+dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
+
+dat15 <- cbind(dat15, predict(lm_models[["2015"]], newdata = dat15, interval = "confidence"))
+dat16 <- cbind(dat16, predict(lm_models[["2016"]], newdata = dat16, interval = "confidence"))
+
+Work_dat <-  rbind(dat15, dat16)
+
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban)) +
+    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban), alpha = 0.5, color = NA) +
+    geom_point(aes(shape = Gender), size = 1.5) +
+    geom_line(aes(y = fit, linetype = Gender)) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_linetype_manual(values = c("solid", "dashed")) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_alpha_manual(values = c(0.3, 0.1)) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+```
+
+
+
+### Right_Hand
+#### faith_pd without baby
+```{r}
+BB = "Right_Hand"
+AA = "faith_pd"
+
+Work_dat <- Work %>% filter(Body_Site==BB, SampleGroup=="Villagers", Age_num>=1)
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_point(size = 1.5) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+```
+```{r}
+# Year 2015
+YY = "2015"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+
+```{r}
+# Year 2016
+YY = "2016"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+In 2016, Only Urban
+
+For consistency, only gender and urban were included.
+
+```{r}
+# Final linear model
+lm_models <- list()
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.final <- lm(paste0(AA, " ~ Urban + Gender + Age_num"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.final) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.final) %>% print()
+    lm_models[[YY]] <- fit.final
+}
+```
+Next we perform the broken stick regression based on the selected final model
+```{r}
+stick_models <- list()
+for (YY in Yrs){
+    #YY = "2015"
+    print(paste0("-------Following is for ", YY, "--------------"))
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.seg <- segmented(lm_models[[YY]], seg.Z = ~ Age_num, psi = 9)
+    summary(fit.seg) %>% print()
+    plot(fit.seg$fitted.values, fit.seg$residuals)
+    plot(fit.seg$model$faith_pd, fit.seg$fitted.values)
+    qqnorm(fit.seg$residuals)
+    if (!"segmented" %in% class(fit.seg)){
+        print(paste(YY, BB, AA, "same as lm model", sep = "-"))
+    } else {
+        anova(fit.seg, lm_models[[YY]]) %>% print()
+        davies.test(lm_models[[YY]], seg.Z = ~ Age_num, k = 10) %>% print()
+        confint.segmented(fit.seg) %>% print()
+        stick_models[[YY]] <- fit.seg
+        slope(fit.seg) %>% print()
+    }
+
+
+}
+```
+
+Making plots
+```{r}
+dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
+dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
+
+dat15 <- cbind(dat15, predict(lm_models[["2015"]], newdata = dat15, interval = "confidence"))
+dat16 <- cbind(dat16, predict(lm_models[["2016"]], newdata = dat16, interval = "confidence"))
+
+Work_dat <-  rbind(dat15, dat16)
+
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban)) +
+    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban), alpha = 0.5, color = NA) +
+    geom_point(aes(shape = Gender), size = 1.5) +
+    geom_line(aes(y = fit, linetype = Gender)) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_linetype_manual(values = c("solid", "dashed")) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+```
+
+
+#### observed_otu without baby
+```{r}
+BB = "Right_Hand"
+AA = "observed_otus"
+
+Work_dat <- Work %>% filter(Body_Site==BB, SampleGroup=="Villagers", Age_num>=1)
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_point(size = 1.5) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+```
+```{r}
+# Year 2015
+YY = "2015"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+```{r}
+# Year 2016
+YY = "2016"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+```{r}
+# Final linear model
+lm_models <- list()
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.final <- lm(paste0(AA, " ~ Urban + Gender + Age_num"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.final) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.final) %>% print()
+    lm_models[[YY]] <- fit.final
+}
+```
+Next we perform the broken stick regression based on the selected final model
+```{r}
+stick_models <- list()
+for (YY in Yrs){
+    #YY = "2015"
+    print(paste0("-------Following is for ", YY, "--------------"))
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.seg <- segmented(lm_models[[YY]], seg.Z = ~ Age_num, psi = 9)
+    summary(fit.seg) %>% print()
+    plot(fit.seg$fitted.values, fit.seg$residuals)
+    plot(fit.seg$model$observed_otus, fit.seg$fitted.values)
+    qqnorm(fit.seg$residuals)
+    if (!"segmented" %in% class(fit.seg)){
+        print(paste(YY, BB, AA, "same as lm model", sep = "-"))
+    } else {
+        anova(fit.seg, lm_models[[YY]]) %>% print()
+        davies.test(lm_models[[YY]], seg.Z = ~ Age_num, k = 10) %>% print()
+        confint.segmented(fit.seg) %>% print()
+        stick_models[[YY]] <- fit.seg
+        slope(fit.seg) %>% print()
+    }
+
+
+}
+```
+Making plots
+```{r}
+dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
+dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
+
+dat15 <- cbind(dat15, predict(lm_models[["2015"]], newdata = dat15, interval = "confidence"))
+dat16 <- cbind(dat16, predict(lm_models[["2016"]], newdata = dat16, interval = "confidence"))
+
+Work_dat <-  rbind(dat15, dat16)
+
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban, alpha = Gender), alpha = 0.5, color = NA) +
+    geom_point(size = 1.5) +
+    geom_line(aes(y = fit, linetype = Gender)) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_linetype_manual(values = c("solid", "dashed")) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_alpha_manual(values = c(0.3, 0.1)) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+```
+
+#### shannon without baby
+```{r}
+BB = "Right_Hand"
+AA = "shannon"
+
+Work_dat <- Work %>% filter(Body_Site==BB, SampleGroup=="Villagers", Age_num>=1)
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
+    geom_point(size = 1.5) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+```
+```{r}
+# Year 2015
+YY = "2015"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+```{r}
+# Year 2016
+YY = "2016"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
+
+anova(regforward.out)
+```
+
+```{r}
+# Final linear model
+lm_models <- list()
+for (YY in Yrs){
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.final <- lm(paste0(AA, " ~ Urban + Gender + Age_num"), data = Work_dat)
+    print(paste0("--------Below is ANOVA table for year ", YY))
+    anova(fit.final) %>% print()
+    
+    print(paste0("--------Below is coefficient for year ", YY))
+    summary(fit.final) %>% print()
+    lm_models[[YY]] <- fit.final
+}
+```
+
+Next we perform the broken stick regression based on the selected final model
+```{r}
+stick_models <- list()
+for (YY in Yrs){
+    #YY = "2015"
+    print(paste0("-------Following is for ", YY, "--------------"))
+    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+    fit.seg <- segmented(lm_models[[YY]], seg.Z = ~ Age_num, psi = 9)
+    summary(fit.seg) %>% print()
+    plot(fit.seg$fitted.values, fit.seg$residuals)
+    plot(fit.seg$model$shannon, fit.seg$fitted.values)
+    qqnorm(fit.seg$residuals)
+    if (!"segmented" %in% class(fit.seg)){
+        print(paste(YY, BB, AA, "same as lm model", sep = "-"))
+    } else {
+        anova(fit.seg, lm_models[[YY]]) %>% print()
+        davies.test(lm_models[[YY]], seg.Z = ~ Age_num, k = 10) %>% print()
+        confint.segmented(fit.seg) %>% print()
+        stick_models[[YY]] <- fit.seg
+        slope(fit.seg) %>% print()
+    }
+
+
+}
+```
+
+Making plots
+```{r}
+dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
+dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
+
+dat15 <- cbind(dat15, predict(lm_models[["2015"]], newdata = dat15, interval = "confidence"))
+dat16 <- cbind(dat16, predict(lm_models[["2016"]], newdata = dat16, interval = "confidence"))
+
+Work_dat <-  rbind(dat15, dat16)
+
+p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban)) +
+    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban), alpha = 0.5, color = NA) +
+    geom_point(aes(shape = Gender), size = 1.5) +
+    geom_line(aes(y = fit, linetype = Gender)) +
+    scale_shape_manual(values = c(16, 21)) +
+    scale_linetype_manual(values = c("solid", "dashed")) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
+    scale_alpha_manual(values = c(0.3, 0.1)) +
+    facet_grid(.~Year) +
+    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    labs(x = "Age (Years)", y = AA, title = BB)
+print(p)
+set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+```
+
+
+### Stats check
+#### Stats on the urban, age, and gender
+```{r, eval=FALSE}
+Indices <- colnames(alpha[c(2, 4:5)])
+Yrs <- c("2015", "2016")
+BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand")
+
+lm_results <- list()
+duncan_results <- list()
+
+for (AA in Indices){
+    for (BB in BodySites){
+        for (YY in Yrs){
+            Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+            fit.final <- lm(paste0(AA, " ~ Urban + Gender + Age_num"), data = Work_dat)
+            print(paste0("--------Below is ANOVA table for year ", YY))
+            anova(fit.final) %>% print()
+            
+            print(paste0("--------Below is coefficient for year ", YY))
+            summary(fit.final) %>% print()
+            lm_results[[paste(AA, BB, YY, sep = "-")]] <- summary(fit.final)$coefficients[-1, ] %>% as.data.frame() %>% rownames_to_column(var = "Factor") %>% mutate(Year = YY, Body_Sites = BB, Index = AA)
+            fit.final.village <- lm(paste0(AA, " ~ Village + Gender + Age_num"), data = Work_dat)
+            duncan_results[[paste(AA, BB, YY, sep = "-")]] <- duncan.test(fit.final.village, trt = "Village", console = T)$groups %>% rownames_to_column(var = "Village") %>% mutate(Year = YY, Body_Sites = BB, Index = AA)
+            colnames(duncan_results[[paste(AA, BB, YY, sep = "-")]])[2] <- "Value"
+        }
+    }
+}
+
+lm_results_final <- do.call("rbind", lm_results)
+duncan_results_final <- do.call("rbind", duncan_results)
+
+clip <- pipe("pbcopy", "w")
+write.table(lm_results_final, file = clip, row.names = F, quote = F, sep = "\t")
+close(clip)
+```
+# within Sanema village effect
+```{r}
+Indices <- colnames(alpha[c(2, 4:5)])
+Yrs <- c("2015", "2016")
+BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand")
+
+lm_results <- list()
+anova_results <- list()
+for (AA in Indices){
+    for (BB in BodySites){
+        for (YY in Yrs){
+            Work_dat <- Work %>% filter(Ethnicity=="SANEMA", Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
+            fit.final <- lm(paste0(AA, " ~ Village + Gender + Age_num"), data = Work_dat)
+            print(paste0("--------Below is ANOVA table for year ", YY))
+            anova(fit.final) %>% print()
+            
+            print(paste0("--------Below is coefficient for year ", YY))
+            summary(fit.final) %>% print()
+            lm_results[[paste(AA, BB, YY, sep = "-")]] <- summary(fit.final)$coefficients[-1, ] %>% as.data.frame() %>% rownames_to_column(var = "Factor") %>% mutate(Year = YY, Body_Sites = BB, Index = AA)
+            anova_results[[paste(AA, BB, YY, sep = "-")]] <- as.data.frame(anova(fit.final))[1:3, 4:5] %>% rownames_to_column(var = "Factor") %>% mutate(Year = YY, Body_Sites = BB, Index = AA)
+            
+        }
+    }
+}
+
+lm_results_final <- do.call("rbind", lm_results)
+anova_results_final <- do.call("rbind", anova_results)
+
+clip <- pipe("pbcopy", "w")
+write.table(anova_results_final, file = clip, row.names = F, quote = F, sep = "\t")
+close(clip)
+```
+
