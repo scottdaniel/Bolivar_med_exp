@@ -67,8 +67,12 @@ BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand")
 ```
 
 ## Impacts on exposure level
+```{r}
+dat_all = list()
+```
+
 ### Feces
-#### Model seleection
+#### Initial test (no need to run)
 **We first check the faith_pd which described the overall complexity of the microbial community.**
 ```{r}
 BB = "Feces"
@@ -147,8 +151,14 @@ Work %>% filter(Body_Site==BB, faith_pd<12, SampleGroup=="Villagers")
 ```
 It does appears that many baby are outliers, so re-do the analysis without baby.
 
-### Modeling without babies.
-#### faith_pd without baby
+#### Modeling without babies
+```{r}
+dat_p = list()
+dat_p[["2015"]] = list()
+dat_p[["2016"]] = list()
+```
+##### faith_pd
+Overview
 ```{r}
 BB = "Feces"
 AA = "faith_pd"
@@ -163,7 +173,8 @@ p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gende
     labs(x = "Age (Years)", y = AA, title = BB)
 print(p)
 ```
-```{r}
+Modeling 2015
+```{r, eval=FALSE}
 # Year 2015
 YY = "2015"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -179,14 +190,14 @@ regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ 
 
 anova(regforward.out)
 ```
-```{r}
+Modeling 2016
+```{r, eval=FALSE}
 # Year 2016
 YY = "2016"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
     
 # Obtain the full linear model
 fit.full <- lm(get(AA) ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender, data = Work_dat)
-
 # Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
 fit.null <- lm(get(AA) ~ 1, data = Work_dat)
 
@@ -195,6 +206,7 @@ regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ 
 
 anova(regforward.out)
 ```
+Final linear model
 ```{r}
 # Final linear model
 lm_models <- list()
@@ -231,7 +243,7 @@ for (YY in Yrs){
 }
 ```
 
-Making plots
+Creating dataset for plots
 ```{r}
 dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
 dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
@@ -239,39 +251,12 @@ dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", 
 dat15 <- cbind(dat15, predict(stick_models[["2015"]], newdata = dat15, interval = "confidence"))
 dat16 <- cbind(dat16, predict(stick_models[["2016"]], newdata = dat16, interval = "confidence"))
 
-Work_dat <-  rbind(dat15, dat16)
-
-p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
-    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban, alpha = Gender), alpha = 0.5, color = NA) +
-    geom_point(size = 1.5) +
-    geom_line(aes(y = fit, linetype = Gender)) +
-    scale_shape_manual(values = c(16, 21)) +
-    scale_linetype_manual(values = c("solid", "dashed")) +
-    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_alpha_manual(values = c(0.3, 0.1)) +
-    facet_grid(.~Year) +
-    theme_jw(base_size = 8) + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
-    labs(x = "Age (Years)", y = AA, title = BB)
-print(p)
-set_panel_size(p, file = paste0("../output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F)
-
+dat_p[["2015"]][[AA]] = dat15
+dat_p[["2016"]][[AA]] = dat16
 ```
 
-```{r}
-# lm model children between 1-8
-for (YY in Yrs){
-    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1, Age_num<=8)
-    fit.child <- lm(paste0(AA, " ~ Age_num + Urban + Gender"), data = Work_dat)
-    print(paste0("--------Below is ANOVA table for year ", YY))
-    anova(fit.child) %>% print()
-    
-    print(paste0("--------Below is coefficient for year ", YY))
-    summary(fit.child) %>% print()
-}
-```
-
-#### observed_otu without baby
+##### observed_otu
+Overview
 ```{r}
 BB = "Feces"
 AA = "observed_otus"
@@ -282,11 +267,11 @@ p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gende
     scale_shape_manual(values = c(16, 21)) +
     scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
     facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    theme_jw() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
     labs(x = "Age (Years)", y = AA, title = BB)
 print(p)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2015
 YY = "2015"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -302,7 +287,7 @@ regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ 
 
 anova(regforward.out)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2016
 YY = "2016"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -351,7 +336,7 @@ for (YY in Yrs){
 }
 ```
 
-Making plots
+Creating data for plots
 ```{r}
 dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
 dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
@@ -359,26 +344,6 @@ dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", 
 dat15 <- cbind(dat15, predict(stick_models[["2015"]], newdata = dat15, interval = "confidence"))
 dat16 <- cbind(dat16, predict(stick_models[["2016"]], newdata = dat16, interval = "confidence"))
 
-Work_dat <-  rbind(dat15, dat16)
-
-p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
-    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban, alpha = Gender), alpha = 0.5, color = NA) +
-    geom_point(size = 1.5) +
-    geom_line(aes(y = fit, linetype = Gender)) +
-    scale_shape_manual(values = c(16, 21)) +
-    scale_linetype_manual(values = c("solid", "dashed")) +
-    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_alpha_manual(values = c(0.3, 0.1)) +
-    facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
-    labs(x = "Age (Years)", y = AA, title = BB)
-print(p)
-
-set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
-```
-
-```{r}
 # lm model children
 for (YY in Yrs){
     Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1, Age_num<=8)
@@ -389,10 +354,13 @@ for (YY in Yrs){
     print(paste0("--------Below is coefficient for year ", YY))
     summary(fit.child) %>% print()
 }
+
+dat_p[["2015"]][[AA]] = dat15
+dat_p[["2016"]][[AA]] = dat16
 ```
 
 
-#### shannon without baby
+##### shannon
 ```{r}
 BB = "Feces"
 AA = "shannon"
@@ -403,11 +371,11 @@ p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gende
     scale_shape_manual(values = c(16, 21)) +
     scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
     facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    theme_jw() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
     labs(x = "Age (Years)", y = AA, title = BB)
 print(p)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2015
 YY = "2015"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -423,7 +391,7 @@ regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ 
 
 anova(regforward.out)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2016
 YY = "2016"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -455,7 +423,6 @@ for (YY in Yrs){
 ```
 
 Next we perform the broken stick regression based on the selected final model
-
 ```{r}
 stick_models <- list()
 for (YY in Yrs){
@@ -474,7 +441,7 @@ for (YY in Yrs){
 }
 ```
 
-Making plots
+Create data for plots
 ```{r}
 dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
 dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
@@ -482,26 +449,7 @@ dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", 
 dat15 <- cbind(dat15, predict(stick_models[["2015"]], newdata = dat15, interval = "confidence"))
 dat16 <- cbind(dat16, predict(stick_models[["2016"]], newdata = dat16, interval = "confidence"))
 
-Work_dat <-  rbind(dat15, dat16)
 
-p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
-    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban, alpha = Gender), alpha = 0.5, color = NA) +
-    geom_point(size = 1.5) +
-    geom_line(aes(y = fit, linetype = Gender)) +
-    scale_shape_manual(values = c(16, 21)) +
-    scale_linetype_manual(values = c("solid", "dashed")) +
-    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_alpha_manual(values = c(0.3, 0.1)) +
-    facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
-    labs(x = "Age (Years)", y = AA, title = BB)
-print(p)
-
-set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
-```
-
-```{r}
 # lm model children
 for (YY in Yrs){
     Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1, Age_num<=8)
@@ -512,10 +460,24 @@ for (YY in Yrs){
     print(paste0("--------Below is coefficient for year ", YY))
     summary(fit.child) %>% print()
 }
+
+dat_p[["2015"]][[AA]] = dat15
+dat_p[["2016"]][[AA]] = dat16
+```
+##### Data for feces
+```{r}
+dat_all[[BB]] = dat_p
 ```
 
 ### Mouth
-#### faith_pd without baby
+```{r}
+dat_p = list()
+dat_p[["2015"]] = list()
+dat_p[["2016"]] = list()
+```
+#### Modeling without babies
+##### faith_pd
+Overview
 ```{r}
 BB = "Mouth"
 AA = "faith_pd"
@@ -526,11 +488,11 @@ p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gende
     scale_shape_manual(values = c(16, 21)) +
     scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
     facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    theme_jw() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
     labs(x = "Age (Years)", y = AA, title = BB)
 print(p)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2015
 YY = "2015"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -546,11 +508,9 @@ regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ 
 
 anova(regforward.out)
 ```
-
 For year 2015, only urban and age is significant in determing the faith_pd
 
-
-```{r}
+```{r, eval=FALSE}
 # Year 2016
 YY = "2016"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -566,11 +526,8 @@ regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ 
 
 anova(regforward.out)
 ```
-In 2016, In addition to Age_num and Urban, the interaction term between age_num and urban is also significnat at 0.05.
-
+In 2016, In addition to Age_num and Urban, the interaction term between age_num and urban is also significant at 0.05.
 For consistency, only age_num and urban were included.
-
-
 ```{r}
 # Final linear model
 lm_models <- list()
@@ -585,7 +542,6 @@ for (YY in Yrs){
     lm_models[[YY]] <- fit.final
 }
 ```
-
 Next we perform the broken stick regression based on the selected final model
 ```{r}
 stick_models <- list()
@@ -612,9 +568,9 @@ for (YY in Yrs){
 }
 ```
 
-For mouth, broken stick regression did not significantly better than a simple multiple linear regession. So following graph is made using lm.
+For mouth, broken stick regression did not significantly better than a simple multiple linear regression. So following graph is made using lm.
 
-Making plots
+Data for plots
 ```{r}
 dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
 dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
@@ -622,37 +578,12 @@ dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", 
 dat15 <- cbind(dat15, predict(lm_models[["2015"]], newdata = dat15, interval = "confidence"))
 dat16 <- cbind(dat16, predict(lm_models[["2016"]], newdata = dat16, interval = "confidence"))
 
-Work_dat <-  rbind(dat15, dat16)
-
-p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban)) +
-    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban), alpha = 0.5, color = NA) +
-    geom_point(aes(shape = Gender), size = 1.5) +
-    geom_line(aes(y = fit)) +
-    scale_shape_manual(values = c(16, 21)) +
-    scale_linetype_manual(values = c("solid", "dashed")) +
-    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
-    facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
-    labs(x = "Age (Years)", y = AA, title = BB)
-print(p)
-set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+dat_p[["2015"]][[AA]] = dat15
+dat_p[["2016"]][[AA]] = dat16
 ```
 
-```{r}
-# lm model children between 1-8
-for (YY in Yrs){
-    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1, Age_num<=8)
-    fit.child <- lm(paste0(AA, " ~ Age_num + Urban"), data = Work_dat)
-    print(paste0("--------Below is ANOVA table for year ", YY))
-    anova(fit.child) %>% print()
-    
-    print(paste0("--------Below is coefficient for year ", YY))
-    summary(fit.child) %>% print()
-}
-```
-
-#### observed_otu without baby
+##### observed_otu
+Overview
 ```{r}
 BB = "Mouth"
 AA = "observed_otus"
@@ -663,11 +594,11 @@ p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gende
     scale_shape_manual(values = c(16, 21)) +
     scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
     facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    theme_jw() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
     labs(x = "Age (Years)", y = AA, title = BB)
 print(p)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2015
 YY = "2015"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -683,7 +614,7 @@ regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ 
 
 anova(regforward.out)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2016
 YY = "2016"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -734,12 +665,11 @@ for (YY in Yrs){
         stick_models[[YY]] <- fit.seg
         slope(fit.seg) %>% print()
     }
-
-
 }
 ```
+Again, linear model is sufficiently good
 
-Making plots
+Data for plots
 ```{r}
 dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
 dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
@@ -747,39 +677,11 @@ dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", 
 dat15 <- cbind(dat15, predict(lm_models[["2015"]], newdata = dat15, interval = "confidence"))
 dat16 <- cbind(dat16, predict(lm_models[["2016"]], newdata = dat16, interval = "confidence"))
 
-Work_dat <-  rbind(dat15, dat16)
-
-p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
-    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban, alpha = Gender), alpha = 0.5, color = NA) +
-    geom_point(size = 1.5) +
-    geom_line(aes(y = fit, linetype = Gender)) +
-    scale_shape_manual(values = c(16, 21)) +
-    scale_linetype_manual(values = c("solid", "dashed")) +
-    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_alpha_manual(values = c(0.3, 0.1)) +
-    facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
-    labs(x = "Age (Years)", y = AA, title = BB)
-print(p)
-set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+dat_p[["2015"]][[AA]] = dat15
+dat_p[["2016"]][[AA]] = dat16
 ```
 
-```{r}
-# lm model children
-for (YY in Yrs){
-    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1, Age_num<=8)
-    fit.child <- lm(paste0(AA, " ~ Age_num + Urban"), data = Work_dat)
-    print(paste0("--------Below is ANOVA table for year ", YY))
-    anova(fit.child) %>% print()
-    
-    print(paste0("--------Below is coefficient for year ", YY))
-    summary(fit.child) %>% print()
-}
-```
-
-
-#### shannon without baby
+##### shannon
 ```{r}
 BB = "Mouth"
 AA = "shannon"
@@ -790,11 +692,11 @@ p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gende
     scale_shape_manual(values = c(16, 21)) +
     scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
     facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    theme_jw() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
     labs(x = "Age (Years)", y = AA, title = BB)
 print(p)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2015
 YY = "2015"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -810,7 +712,7 @@ regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ 
 
 anova(regforward.out)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2016
 YY = "2016"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -842,7 +744,6 @@ for (YY in Yrs){
 ```
 
 Next we perform the broken stick regression based on the selected final model
-
 ```{r}
 stick_models <- list()
 for (YY in Yrs){
@@ -867,8 +768,9 @@ for (YY in Yrs){
 
 }
 ```
+Again broken stick is not sufficiently better than linear
 
-Making plots
+data for plots
 ```{r}
 dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
 dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
@@ -876,39 +778,22 @@ dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", 
 dat15 <- cbind(dat15, predict(lm_models[["2015"]], newdata = dat15, interval = "confidence"))
 dat16 <- cbind(dat16, predict(lm_models[["2016"]], newdata = dat16, interval = "confidence"))
 
-Work_dat <-  rbind(dat15, dat16)
-
-p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban)) +
-    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban), alpha = 0.5, color = NA) +
-    geom_point(aes(shape = Gender), size = 1.5) +
-    geom_line(aes(y = fit, linetype = Gender)) +
-    scale_shape_manual(values = c(16, 21)) +
-    scale_linetype_manual(values = c("solid", "dashed")) +
-    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_alpha_manual(values = c(0.3, 0.1)) +
-    facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
-    labs(x = "Age (Years)", y = AA, title = BB)
-print(p)
-set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+dat_p[["2015"]][[AA]] = dat15
+dat_p[["2016"]][[AA]] = dat16
 ```
-
+##### Data for mouth
 ```{r}
-# lm model children
-for (YY in Yrs){
-    Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1, Age_num<=8)
-    fit.child <- lm(paste0(AA, " ~ Age_num + Urban"), data = Work_dat)
-    print(paste0("--------Below is ANOVA table for year ", YY))
-    anova(fit.child) %>% print()
-    
-    print(paste0("--------Below is coefficient for year ", YY))
-    summary(fit.child) %>% print()
-}
+dat_all[[BB]] = dat_p
 ```
 
 ### Nose
-#### faith_pd without baby
+```{r}
+dat_p = list()
+dat_p[["2015"]] = list()
+dat_p[["2016"]] = list()
+```
+#### Modeling without babies
+##### faith_pd
 ```{r}
 BB = "Nose"
 AA = "faith_pd"
@@ -919,11 +804,11 @@ p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gende
     scale_shape_manual(values = c(16, 21)) +
     scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
     facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    theme_jw() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
     labs(x = "Age (Years)", y = AA, title = BB)
 print(p)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2015
 YY = "2015"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -939,11 +824,9 @@ regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ 
 
 anova(regforward.out)
 ```
-
 For year 2015, only urban and age is significant in determing the faith_pd
 
-
-```{r}
+```{r, eval=FALSE}
 # Year 2016
 YY = "2016"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -962,7 +845,6 @@ anova(regforward.out)
 In 2016, Age_num and Urban as well.
 
 For consistency, only age_num and urban were included.
-
 ```{r}
 # Final linear model
 lm_models <- list()
@@ -1003,8 +885,9 @@ for (YY in Yrs){
 
 }
 ```
+Stick model is better than linear
 
-Making plots
+data for plots
 ```{r}
 dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
 dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
@@ -1012,24 +895,6 @@ dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", 
 dat15 <- cbind(dat15, predict(stick_models[["2015"]], newdata = dat15, interval = "confidence"))
 dat16 <- cbind(dat16, predict(stick_models[["2016"]], newdata = dat16, interval = "confidence"))
 
-Work_dat <-  rbind(dat15, dat16)
-
-p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban)) +
-    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban), alpha = 0.5, color = NA) +
-    geom_point(aes(shape = Gender), size = 1.5) +
-    geom_line(aes(y = fit)) +
-    scale_shape_manual(values = c(16, 21)) +
-    scale_linetype_manual(values = c("solid", "dashed")) +
-    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
-    facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
-    labs(x = "Age (Years)", y = AA, title = BB)
-print(p)
-set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
-```
-
-```{r}
 # lm model children between 1-8
 for (YY in Yrs){
     Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1, Age_num<=8)
@@ -1040,9 +905,12 @@ for (YY in Yrs){
     print(paste0("--------Below is coefficient for year ", YY))
     summary(fit.child) %>% print()
 }
+
+dat_p[["2015"]][[AA]] = dat15
+dat_p[["2016"]][[AA]] = dat16
 ```
 
-#### observed_otu without baby
+##### observed_otu
 ```{r}
 BB = "Nose"
 AA = "observed_otus"
@@ -1053,11 +921,11 @@ p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gende
     scale_shape_manual(values = c(16, 21)) +
     scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
     facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    theme_jw() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
     labs(x = "Age (Years)", y = AA, title = BB)
 print(p)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2015
 YY = "2015"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -1073,7 +941,7 @@ regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ 
 
 anova(regforward.out)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2016
 YY = "2016"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -1129,7 +997,7 @@ for (YY in Yrs){
 }
 ```
 
-Making plots
+data for plots
 ```{r}
 dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
 dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
@@ -1137,25 +1005,6 @@ dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", 
 dat15 <- cbind(dat15, predict(stick_models[["2015"]], newdata = dat15, interval = "confidence"))
 dat16 <- cbind(dat16, predict(stick_models[["2016"]], newdata = dat16, interval = "confidence"))
 
-Work_dat <-  rbind(dat15, dat16)
-
-p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
-    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban, alpha = Gender), alpha = 0.5, color = NA) +
-    geom_point(size = 1.5) +
-    geom_line(aes(y = fit, linetype = Gender)) +
-    scale_shape_manual(values = c(16, 21)) +
-    scale_linetype_manual(values = c("solid", "dashed")) +
-    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_alpha_manual(values = c(0.3, 0.1)) +
-    facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
-    labs(x = "Age (Years)", y = AA, title = BB)
-print(p)
-set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
-```
-
-```{r}
 # lm model children
 for (YY in Yrs){
     Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1, Age_num<=8)
@@ -1166,10 +1015,13 @@ for (YY in Yrs){
     print(paste0("--------Below is coefficient for year ", YY))
     summary(fit.child) %>% print()
 }
+
+dat_p[["2015"]][[AA]] = dat15
+dat_p[["2016"]][[AA]] = dat16
 ```
 
 
-#### shannon without baby
+##### shannon
 ```{r}
 BB = "Nose"
 AA = "shannon"
@@ -1180,11 +1032,11 @@ p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gende
     scale_shape_manual(values = c(16, 21)) +
     scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
     facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    theme_jw() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
     labs(x = "Age (Years)", y = AA, title = BB)
 print(p)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2015
 YY = "2015"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -1200,7 +1052,7 @@ regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ 
 
 anova(regforward.out)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2016
 YY = "2016"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -1260,7 +1112,7 @@ for (YY in Yrs){
 }
 ```
 
-Making plots
+data for plots
 ```{r}
 dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
 dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
@@ -1268,25 +1120,8 @@ dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", 
 dat15 <- cbind(dat15, predict(stick_models[["2015"]], newdata = dat15, interval = "confidence"))
 dat16 <- cbind(dat16, predict(stick_models[["2016"]], newdata = dat16, interval = "confidence"))
 
-Work_dat <-  rbind(dat15, dat16)
-
-p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban)) +
-    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban), alpha = 0.5, color = NA) +
-    geom_point(aes(shape = Gender), size = 1.5) +
-    geom_line(aes(y = fit, linetype = Gender)) +
-    scale_shape_manual(values = c(16, 21)) +
-    scale_linetype_manual(values = c("solid", "dashed")) +
-    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_alpha_manual(values = c(0.3, 0.1)) +
-    facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
-    labs(x = "Age (Years)", y = AA, title = BB)
-print(p)
-set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
-```
-
-```{r}
+dat_p[["2015"]][[AA]] = dat15
+dat_p[["2016"]][[AA]] = dat16
 # lm model children
 for (YY in Yrs){
     Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1, Age_num<=8)
@@ -1298,10 +1133,18 @@ for (YY in Yrs){
     summary(fit.child) %>% print()
 }
 ```
-
-
+##### Data for nose
+```{r}
+dat_all[[BB]] = dat_p
+```
 ### Right_Arm
-#### faith_pd without baby
+```{r}
+dat_p = list()
+dat_p[["2015"]] = list()
+dat_p[["2016"]] = list()
+```
+#### Modeling without babies
+##### faith_pd
 ```{r}
 BB = "Right_Arm"
 AA = "faith_pd"
@@ -1312,11 +1155,11 @@ p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gende
     scale_shape_manual(values = c(16, 21)) +
     scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
     facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    theme_jw() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
     labs(x = "Age (Years)", y = AA, title = BB)
 print(p)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2015
 YY = "2015"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -1336,7 +1179,7 @@ anova(regforward.out)
 For year 2015, only urban and gender is significant in determing the faith_pd
 
 
-```{r}
+```{r, eval=FALSE}
 # Year 2016
 YY = "2016"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -1372,7 +1215,7 @@ for (YY in Yrs){
 ```
 
 
-Making plots
+data for plots
 ```{r}
 dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
 dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
@@ -1380,25 +1223,13 @@ dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", 
 dat15 <- cbind(dat15, predict(lm_models[["2015"]], newdata = dat15, interval = "confidence"))
 dat16 <- cbind(dat16, predict(lm_models[["2016"]], newdata = dat16, interval = "confidence"))
 
-Work_dat <-  rbind(dat15, dat16)
+dat_p[["2015"]][[AA]] = dat15
+dat_p[["2016"]][[AA]] = dat16
 
-p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban)) +
-    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban), alpha = 0.5, color = NA) +
-    geom_point(aes(shape = Gender), size = 1.5) +
-    geom_line(aes(y = fit, linetype = Gender)) +
-    scale_shape_manual(values = c(16, 21)) +
-    scale_linetype_manual(values = c("solid", "dashed")) +
-    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
-    facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
-    labs(x = "Age (Years)", y = AA, title = BB)
-print(p)
-set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
 ```
 
 
-#### observed_otu without baby
+##### observed_otu
 ```{r}
 BB = "Right_Arm"
 AA = "observed_otus"
@@ -1409,11 +1240,11 @@ p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gende
     scale_shape_manual(values = c(16, 21)) +
     scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
     facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    theme_jw() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
     labs(x = "Age (Years)", y = AA, title = BB)
 print(p)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2015
 YY = "2015"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -1429,7 +1260,7 @@ regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ 
 
 anova(regforward.out)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2016
 YY = "2016"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -1460,7 +1291,7 @@ for (YY in Yrs){
 }
 ```
 
-Making plots
+data for plots
 ```{r}
 dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
 dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
@@ -1468,25 +1299,11 @@ dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", 
 dat15 <- cbind(dat15, predict(lm_models[["2015"]], newdata = dat15, interval = "confidence"))
 dat16 <- cbind(dat16, predict(lm_models[["2016"]], newdata = dat16, interval = "confidence"))
 
-Work_dat <-  rbind(dat15, dat16)
-
-p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
-    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban, alpha = Gender), alpha = 0.5, color = NA) +
-    geom_point(size = 1.5) +
-    geom_line(aes(y = fit, linetype = Gender)) +
-    scale_shape_manual(values = c(16, 21)) +
-    scale_linetype_manual(values = c("solid", "dashed")) +
-    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_alpha_manual(values = c(0.3, 0.1)) +
-    facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
-    labs(x = "Age (Years)", y = AA, title = BB)
-print(p)
-set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+dat_p[["2015"]][[AA]] = dat15
+dat_p[["2016"]][[AA]] = dat16
 ```
 
-#### shannon without baby
+##### shannon
 ```{r}
 BB = "Right_Arm"
 AA = "shannon"
@@ -1497,11 +1314,11 @@ p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gende
     scale_shape_manual(values = c(16, 21)) +
     scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
     facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    theme_jw() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
     labs(x = "Age (Years)", y = AA, title = BB)
 print(p)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2015
 YY = "2015"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -1517,7 +1334,7 @@ regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ 
 
 anova(regforward.out)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2016
 YY = "2016"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -1551,7 +1368,7 @@ for (YY in Yrs){
 ```
 
 
-Making plots
+data for plots
 ```{r}
 dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
 dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
@@ -1559,28 +1376,23 @@ dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", 
 dat15 <- cbind(dat15, predict(lm_models[["2015"]], newdata = dat15, interval = "confidence"))
 dat16 <- cbind(dat16, predict(lm_models[["2016"]], newdata = dat16, interval = "confidence"))
 
-Work_dat <-  rbind(dat15, dat16)
-
-p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban)) +
-    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban), alpha = 0.5, color = NA) +
-    geom_point(aes(shape = Gender), size = 1.5) +
-    geom_line(aes(y = fit, linetype = Gender)) +
-    scale_shape_manual(values = c(16, 21)) +
-    scale_linetype_manual(values = c("solid", "dashed")) +
-    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_alpha_manual(values = c(0.3, 0.1)) +
-    facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
-    labs(x = "Age (Years)", y = AA, title = BB)
-print(p)
-set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+dat_p[["2015"]][[AA]] = dat15
+dat_p[["2016"]][[AA]] = dat16
 ```
 
-
+##### Data for right arm
+```{r}
+dat_all[[BB]] = dat_p
+```
 
 ### Right_Hand
-#### faith_pd without baby
+```{r}
+dat_p = list()
+dat_p[["2015"]] = list()
+dat_p[["2016"]] = list()
+```
+#### Modeling without babies
+##### faith_pd
 ```{r}
 BB = "Right_Hand"
 AA = "faith_pd"
@@ -1591,11 +1403,11 @@ p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gende
     scale_shape_manual(values = c(16, 21)) +
     scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
     facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    theme_jw() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
     labs(x = "Age (Years)", y = AA, title = BB)
 print(p)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2015
 YY = "2015"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -1611,8 +1423,7 @@ regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ 
 
 anova(regforward.out)
 ```
-
-```{r}
+```{r, eval=FALSE}
 # Year 2016
 YY = "2016"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -1631,7 +1442,6 @@ anova(regforward.out)
 In 2016, Only Urban
 
 For consistency, only gender and urban were included.
-
 ```{r}
 # Final linear model
 lm_models <- list()
@@ -1667,12 +1477,10 @@ for (YY in Yrs){
         stick_models[[YY]] <- fit.seg
         slope(fit.seg) %>% print()
     }
-
-
 }
 ```
 
-Making plots
+data for plots
 ```{r}
 dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
 dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
@@ -1680,25 +1488,11 @@ dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", 
 dat15 <- cbind(dat15, predict(lm_models[["2015"]], newdata = dat15, interval = "confidence"))
 dat16 <- cbind(dat16, predict(lm_models[["2016"]], newdata = dat16, interval = "confidence"))
 
-Work_dat <-  rbind(dat15, dat16)
-
-p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban)) +
-    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban), alpha = 0.5, color = NA) +
-    geom_point(aes(shape = Gender), size = 1.5) +
-    geom_line(aes(y = fit, linetype = Gender)) +
-    scale_shape_manual(values = c(16, 21)) +
-    scale_linetype_manual(values = c("solid", "dashed")) +
-    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
-    facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
-    labs(x = "Age (Years)", y = AA, title = BB)
-print(p)
-set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+dat_p[["2015"]][[AA]] = dat15
+dat_p[["2016"]][[AA]] = dat16
 ```
 
-
-#### observed_otu without baby
+##### observed_otu
 ```{r}
 BB = "Right_Hand"
 AA = "observed_otus"
@@ -1709,11 +1503,11 @@ p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gende
     scale_shape_manual(values = c(16, 21)) +
     scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
     facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    theme_jw() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
     labs(x = "Age (Years)", y = AA, title = BB)
 print(p)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2015
 YY = "2015"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -1729,7 +1523,7 @@ regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ 
 
 anova(regforward.out)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2016
 YY = "2016"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -1784,7 +1578,7 @@ for (YY in Yrs){
 
 }
 ```
-Making plots
+data for plots
 ```{r}
 dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
 dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
@@ -1792,25 +1586,11 @@ dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", 
 dat15 <- cbind(dat15, predict(lm_models[["2015"]], newdata = dat15, interval = "confidence"))
 dat16 <- cbind(dat16, predict(lm_models[["2016"]], newdata = dat16, interval = "confidence"))
 
-Work_dat <-  rbind(dat15, dat16)
-
-p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
-    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban, alpha = Gender), alpha = 0.5, color = NA) +
-    geom_point(size = 1.5) +
-    geom_line(aes(y = fit, linetype = Gender)) +
-    scale_shape_manual(values = c(16, 21)) +
-    scale_linetype_manual(values = c("solid", "dashed")) +
-    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_alpha_manual(values = c(0.3, 0.1)) +
-    facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
-    labs(x = "Age (Years)", y = AA, title = BB)
-print(p)
-set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+dat_p[["2015"]][[AA]] = dat15
+dat_p[["2016"]][[AA]] = dat16
 ```
 
-#### shannon without baby
+##### shannon
 ```{r}
 BB = "Right_Hand"
 AA = "shannon"
@@ -1821,11 +1601,11 @@ p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gende
     scale_shape_manual(values = c(16, 21)) +
     scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
     facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    theme_jw() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
     labs(x = "Age (Years)", y = AA, title = BB)
 print(p)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2015
 YY = "2015"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -1841,7 +1621,7 @@ regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ 
 
 anova(regforward.out)
 ```
-```{r}
+```{r, eval=FALSE}
 # Year 2016
 YY = "2016"
 Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers", Age_num>=1)
@@ -1899,7 +1679,7 @@ for (YY in Yrs){
 }
 ```
 
-Making plots
+data for plots
 ```{r}
 dat15 <- Work %>% filter(Body_Site==BB, Year=="2015", SampleGroup=="Villagers", Age_num>=1)
 dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", Age_num>=1)
@@ -1907,27 +1687,16 @@ dat16 <- Work %>% filter(Body_Site==BB, Year=="2016", SampleGroup=="Villagers", 
 dat15 <- cbind(dat15, predict(lm_models[["2015"]], newdata = dat15, interval = "confidence"))
 dat16 <- cbind(dat16, predict(lm_models[["2016"]], newdata = dat16, interval = "confidence"))
 
-Work_dat <-  rbind(dat15, dat16)
-
-p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban)) +
-    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Urban), alpha = 0.5, color = NA) +
-    geom_point(aes(shape = Gender), size = 1.5) +
-    geom_line(aes(y = fit, linetype = Gender)) +
-    scale_shape_manual(values = c(16, 21)) +
-    scale_linetype_manual(values = c("solid", "dashed")) +
-    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
-    scale_alpha_manual(values = c(0.3, 0.1)) +
-    facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
-    labs(x = "Age (Years)", y = AA, title = BB)
-print(p)
-set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+dat_p[["2015"]][[AA]] = dat15
+dat_p[["2016"]][[AA]] = dat16
+```
+##### Data for right hand
+```{r}
+dat_all[[BB]] = dat_p
 ```
 
-
-### Stats check
-#### Stats on the urban, age, and gender
+## Stats check
+### Stats on the urban, age, and gender
 ```{r, eval=FALSE}
 Indices <- colnames(alpha[c(2, 4:5)])
 Yrs <- c("2015", "2016")
@@ -1955,13 +1724,17 @@ for (AA in Indices){
 }
 
 lm_results_final <- do.call("rbind", lm_results)
+lm_results_final$fdr <- p.adjust(lm_results_final$`Pr(>|t|)`, method = "fdr")
 duncan_results_final <- do.call("rbind", duncan_results)
 
-clip <- pipe("pbcopy", "w")
-write.table(lm_results_final, file = clip, row.names = F, quote = F, sep = "\t")
-close(clip)
+write.table(lm_results_final, file = "../data/alpha_lm_stats.txt", sep = "\t", row.names = F, quote = F)
+
+# clip <- pipe("pbcopy", "w")
+# write.table(lm_results_final, file = clip, row.names = F, quote = F, sep = "\t")
+# close(clip)
 ```
-# within Sanema village effect
+
+### within Sanema village effect
 ```{r}
 Indices <- colnames(alpha[c(2, 4:5)])
 Yrs <- c("2015", "2016")
@@ -1989,8 +1762,8 @@ for (AA in Indices){
 lm_results_final <- do.call("rbind", lm_results)
 anova_results_final <- do.call("rbind", anova_results)
 
-clip <- pipe("pbcopy", "w")
-write.table(anova_results_final, file = clip, row.names = F, quote = F, sep = "\t")
-close(clip)
+# clip <- pipe("pbcopy", "w")
+# write.table(anova_results_final, file = clip, row.names = F, quote = F, sep = "\t")
+# close(clip)
 ```
 
