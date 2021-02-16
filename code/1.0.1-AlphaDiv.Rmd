@@ -14,8 +14,7 @@ opts_knit$set(width=75)
 
 # Loading library here
 library(tidyverse)
-library(extrafont)
-library(ggpubr)
+#library(ggpubr)
 library(MASS)
 library(segmented)
 library(agricolae)
@@ -158,9 +157,9 @@ Work_dat <- Work %>% filter(Body_Site==BB, SampleGroup=="Villagers", Age_num>=1)
 p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gender)) +
     geom_point(size = 1.5) +
     scale_shape_manual(values = c(16, 21)) +
-    scale_color_manual(breaks = names(Exp_color), values = Urban_color) +
+    scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
     facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    theme_jw() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
     labs(x = "Age (Years)", y = AA, title = BB)
 print(p)
 ```
@@ -252,10 +251,10 @@ p <- ggplot(Work_dat, aes(x = Age_num, y = get(AA), color = Urban, shape = Gende
     scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
     scale_alpha_manual(values = c(0.3, 0.1)) +
     facet_grid(.~Year) +
-    theme_Publication() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+    theme_jw(base_size = 8) + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
     labs(x = "Age (Years)", y = AA, title = BB)
 print(p)
-set_panel_size(p, file = paste0("output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F, family = "Arial")
+set_panel_size(p, file = paste0("../output/figures/", AA, "_", BB, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"), panel.size = T, useDingbats = F)
 
 ```
 
