@@ -59,13 +59,6 @@ Mapping_work$Age_num[Mapping_work$Age=="1_day"] <- 0
 Work <- merge(alpha, Mapping_work, by = 1) %>% mutate(Age_grp2 = case_when(Age_num<=3 ~ "Age_0-3", Age_num<=8 ~ "Age_3-8", Age_num<18 ~ "Age_8-18", T ~ "Adults"))
 ```
 
-```{r}
-#Work$Body_Site %>% factor %>% levels
-Indices <- colnames(alpha[2:5])
-Yrs <- c("2015", "2016")
-BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand")
-```
-
 ## Impacts on exposure level
 ```{r}
 dat_all = list()
@@ -1765,5 +1758,21 @@ anova_results_final <- do.call("rbind", anova_results)
 # clip <- pipe("pbcopy", "w")
 # write.table(anova_results_final, file = clip, row.names = F, quote = F, sep = "\t")
 # close(clip)
+```
+
+
+## Graphs
+1. alpha diversity in 2015
+```{r}
+Indices <- colnames(alpha[c(2, 4:5)])
+Yrs <- c("2015", "2016")
+BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand")
+```
+```{r}
+YY = "2015"
+for (DD in Indices){
+    #DD = "faith_pd"
+    lapply(dat_all, function(x){x[[YY]][[DD]]}) %>% data.table::rbindlist(., use.names = T, idcol = "BodySite")
+}
 ```
 
