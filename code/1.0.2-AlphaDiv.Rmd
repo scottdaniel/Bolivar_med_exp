@@ -1585,11 +1585,7 @@ dat_pred = list()
 for (bb in BodySites){
   for (dd in Indices){
     for(yy in Yrs){
-      dat_new_ = dat_new %>% 
-        dplyr::select(any_of(models[[bb]][[dd]][[yy]]$model %>% colnames())) %>%
-        distinct()
-      dat_pred[[bb]][[dd]][[yy]] = cbind(dat_new_, 
-                                         predict(models[[bb]][[dd]][[yy]], newdata = dat_new_, interval = "confidence"))
+      dat_pred[[bb]][[dd]][[yy]] = cbind(dat_new, predict(models[[bb]][[dd]][[yy]], newdata = dat_new, interval = "confidence"))
       
     }
   }
@@ -1606,8 +1602,8 @@ for (dd in Indices){
     #bb = "Feces"
     dat_ = Work %>% filter(Body_Site==bb, Year==yy, SampleGroup=="Villagers", Age_num>=1)
     dat_pred_ = dat_pred[[bb]][[dd]][[yy]]
-    ggplot(dat_, aes_string(x = "Age_num", y = dd, color = "Urban", shape = "Gender")) +
-      geom_point(size = 0.5, alpha = 0.3) +
+    p = ggplot(dat_, aes_string(x = "Age_num", y = dd, color = "Urban", shape = "Gender")) +
+      geom_point(size = 1, alpha = 0.5) +
       geom_line(data = dat_pred_, aes(y = fit, linetype = Gender), size = 0.3) +
       geom_ribbon(data = dat_pred_, aes(y = fit, ymin = lwr, ymax = upr, fill = Urban, alpha = Gender), color = NA, show.legend = F) +
       scale_color_manual(values = Urban_color) +
@@ -1615,14 +1611,16 @@ for (dd in Indices){
       scale_shape_manual(values = c(16, 1)) +
       scale_linetype_manual(values = c(1, 2)) +
       scale_alpha_manual(values = c(0.4, 0.2)) +
-      theme_jw(base_size = 8) + theme(aspect.ratio = 0.7, panel.background = element_rect(color = "black"), plot.title = element_text(hjust = 0), plot.title.position = "plot", legend.key.width = unit(1,"cm")) +
-      labs(color = "Exposure") +
-      #guides(shape = guide_legend(override.aes = list(alpha = 1, size = 1.5))) +
+      theme_jw(base_size = 8) + theme(aspect.ratio = 0.7, panel.background = element_rect(color = "black"), plot.title = element_text(hjust = 0, vjust = 1), plot.title.position = "panel", legend.key.width = unit(1,"cm"), legend.margin = margin(rep(-3, 4))) +
+      labs(color = "Actual samples (point)", linetype = "Model prediction (line)", shape = "") +
+      guides(color = guide_legend(override.aes = list(alpha = 1, size = 1.5, linetype = c(NA, NA)), order = 1), shape = guide_legend(override.aes = list(size = 1.5, alpha = 1), order = 2), linetype = guide_legend(order = 3)) +
       ggtitle(bb)
-    ggsave(filename = "tmp.pdf", width = 3.5)
-    
+    p_list[[bb]] = p
   }
+  p_f = p_list[["Feces"]] + p_list[["Nose"]] + guide_area() + p_list[["Mouth"]] + p_list[["Right_Arm"]] + p_list[["Right_Hand"]] + plot_layout(guides = "collect", nrow = 2) + plot_annotation(tag_levels = 'A') & theme(plot.tag = element_text(size = 10, face = "bold"))
+  set_panel_size(p = p_f, g = patchworkGrob(p_f), file = paste0( "../output/figures/alpha_regression_", dd, "_", yy, ".pdf"), width =  unit(3, "in"), height = unit(2.1, "in"))
 }
+
 ```
 
 
