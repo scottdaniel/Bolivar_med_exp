@@ -180,6 +180,7 @@ fit.null <- lm(get(AA) ~ 1, data = Work_dat)
 regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Urban + Gender + Age_num:Urban + Age_num:Gender + Urban:Gender)
 
 anova(regforward.out)
+summary(regforward.out)
 ```
 Modeling 2016
 ```{r, eval=FALSE}
@@ -1611,13 +1612,14 @@ for (dd in Indices){
       scale_shape_manual(values = c(16, 1)) +
       scale_linetype_manual(values = c(1, 2)) +
       scale_alpha_manual(values = c(0.4, 0.2)) +
-      theme_jw(base_size = 8) + theme(aspect.ratio = 0.7, panel.background = element_rect(color = "black"), plot.title = element_text(hjust = 0, vjust = 1), plot.title.position = "panel", legend.key.width = unit(1,"cm"), legend.margin = margin(rep(-3, 4))) +
-      labs(color = "Actual samples (point)", linetype = "Model prediction (line)", shape = "") +
+      theme_jw(base_size = 10) + theme(aspect.ratio = 0.7, panel.background = element_rect(color = "black"), plot.title = element_text(hjust = 0, vjust = 1), plot.title.position = "panel", legend.key.width = unit(1,"cm"), legend.margin = margin(rep(-3, 4))) +
+      labs(color = "Samples points", linetype = "Regression lines", shape = "", x = "Age (Year)") +
       guides(color = guide_legend(override.aes = list(alpha = 1, size = 1.5, linetype = c(NA, NA)), order = 1), shape = guide_legend(override.aes = list(size = 1.5, alpha = 1), order = 2), linetype = guide_legend(order = 3)) +
       ggtitle(bb)
     p_list[[bb]] = p
   }
   p_f = p_list[["Feces"]] + p_list[["Nose"]] + guide_area() + p_list[["Mouth"]] + p_list[["Right_Arm"]] + p_list[["Right_Hand"]] + plot_layout(guides = "collect", nrow = 2) + plot_annotation(tag_levels = 'A') & theme(plot.tag = element_text(size = 10, face = "bold"))
+  print(p_f)
   set_panel_size(p = p_f, g = patchworkGrob(p_f), file = paste0( "../output/figures/alpha_regression_", dd, "_", yy, ".pdf"), width =  unit(3, "in"), height = unit(2.1, "in"))
 }
 
