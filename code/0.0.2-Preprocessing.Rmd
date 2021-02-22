@@ -124,9 +124,9 @@ Work_VR16_BL$Family_ID <- "Visitors"
 
 
 Mapping_common_header <- Reduce(intersect, list(colnames(Mapping_import$VL), colnames(Work_VR15_BL), colnames(Work_VR16_BL)))
-Mapping_MS_Urban <- do.call("rbind", lapply(list(Mapping_import$VL, Work_VR15_BL, Work_VR16_BL), FUN = function(x){x[Mapping_common_header]})) %>% filter(Village != "Kadansakaduinha", !is.na(Age))
-Mapping_MS_Urban$Ethnicity[which(Mapping_MS_Urban$Ethnicity=="Yekwana")] <- "YEKWANA"
-saveRDS(Mapping_MS_Urban, file = "../data/Mapping_MS_Urban.Rds")
+Mapping_MS_Expo <- do.call("rbind", lapply(list(Mapping_import$VL, Work_VR15_BL, Work_VR16_BL), FUN = function(x){x[Mapping_common_header]})) %>% filter(Village != "Kadansakaduinha", !is.na(Age))
+Mapping_MS_Expo$Ethnicity[which(Mapping_MS_Expo$Ethnicity=="Yekwana")] <- "YEKWANA"
+saveRDS(Mapping_MS_Expo, file = "../data/Mapping_MS_Expo.Rds")
 ```
 
 
@@ -163,34 +163,34 @@ saveRDS(DM_bc, file = "../data/DM_bc_all_20200604.Rds")
 # Decoide
 ## run decoide
 ```{r}
-load("output/Mapping_MS_Urban.Rdata")
+load("output/Mapping_MS_Expo.Rdata")
 Yrs <- c("2015", "2016")
 BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand")
 for (BB in BodySites) {
     # BB = "Feces"
     for (YY in Yrs){
         # YY = "2015"
-        Work_dat <- Mapping_MS_Urban %>% filter(Body_Site==BB, Year==YY)
-        write.table(Work_dat, file = paste0("output/Mapping_MS_Urban_", BB, "_", YY, ".txt"), sep = "\t", quote = F, row.names = F)
+        Work_dat <- Mapping_MS_Expo %>% filter(Body_Site==BB, Year==YY)
+        write.table(Work_dat, file = paste0("output/Mapping_MS_Expo_", BB, "_", YY, ".txt"), sep = "\t", quote = F, row.names = F)
     }
 }
 ```
 
 ```{bash}
 # qiime2-2019.7 with deicode installed
-for f in /Users/Jincheng/Projects/bolivar_main_2020/output/Mapping_MS_Urban*.txt; do name=$(basename $f ".txt"); qiime feature-table filter-samples --i-table /Users/Jincheng/Dropbox/41-JCHWANG-NYU/Projects/10-Bolivar2018/3-16SDataProcessing/3-Dada/merged-otu.qza --m-metadata-file $f --o-filtered-table /Users/Jincheng/Dropbox/41-JCHWANG-NYU/Projects/10-Bolivar2018/3-16SDataProcessing/4.1-Deicode/${name}_ft.qza; done &>Deicode.log &
+for f in /Users/Jincheng/Projects/bolivar_main_2020/output/Mapping_MS_Expo*.txt; do name=$(basename $f ".txt"); qiime feature-table filter-samples --i-table /Users/Jincheng/Dropbox/41-JCHWANG-NYU/Projects/10-Bolivar2018/3-16SDataProcessing/3-Dada/merged-otu.qza --m-metadata-file $f --o-filtered-table /Users/Jincheng/Dropbox/41-JCHWANG-NYU/Projects/10-Bolivar2018/3-16SDataProcessing/4.1-Deicode/${name}_ft.qza; done &>Deicode.log &
 
 for f in /Users/Jincheng/Dropbox/41-JCHWANG-NYU/Projects/10-Bolivar2018/3-16SDataProcessing/4.1-Deicode/*_ft.qza; do name=$(basename $f "_ft.qza"); qiime deicode rpca --i-table $f --p-min-feature-count 10 --p-min-sample-count 500 --p-n-components 3 --o-biplot /Users/Jincheng/Dropbox/41-JCHWANG-NYU/Projects/10-Bolivar2018/3-16SDataProcessing/4.1-Deicode/${name}_ord.qza --o-distance-matrix /Users/Jincheng/Dropbox/41-JCHWANG-NYU/Projects/10-Bolivar2018/3-16SDataProcessing/4.1-Deicode/${name}_dist.qza; done &>>Deicode.log &
 ```
 
 ```{r, eval=FALSE}
 path1 <- paste0(path_ana, "/4.1-Deicode/")
-ord_qzas <- lapply(list.files(path = path1, pattern = "Mapping_MS_Urban.*ord.qza", full.names = T), read_qza)
+ord_qzas <- lapply(list.files(path = path1, pattern = "Mapping_MS_Expo.*ord.qza", full.names = T), read_qza)
 
-names(ord_qzas) <- list.files(path = path1, pattern = "Mapping_MS_Urban.*ord.qza") %>% gsub(pattern = "Mapping_MS_Urban_|_ord.qza", replacement = "", .)
+names(ord_qzas) <- list.files(path = path1, pattern = "Mapping_MS_Expo.*ord.qza") %>% gsub(pattern = "Mapping_MS_Expo_|_ord.qza", replacement = "", .)
 
-dist_qzas <- lapply(list.files(path = path1, pattern = "Mapping_MS_Urban.*dist.qza", full.names = T), read_qza)
-names(dist_qzas) <- list.files(path = path1, pattern = "Mapping_MS_Urban.*dist.qza") %>% gsub(pattern = "Mapping_MS_Urban_|_dist.qza", replacement = "", .)
+dist_qzas <- lapply(list.files(path = path1, pattern = "Mapping_MS_Expo.*dist.qza", full.names = T), read_qza)
+names(dist_qzas) <- list.files(path = path1, pattern = "Mapping_MS_Expo.*dist.qza") %>% gsub(pattern = "Mapping_MS_Expo_|_dist.qza", replacement = "", .)
 
 saveRDS(ord_qzas, file = "../data/Ord_deicode_all_20200706.Rds")
 saveRDS(dist_qzas, file = "../data/DM_deicode_all_20200604.Rds")
