@@ -71,7 +71,7 @@ BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand")
 ```
 ### Initial test on feces (no need to run)
 **We first check the faith_pd which described the overall complexity of the microbial community.**
-```{r}
+```{r, eval=FALSE}
 BB = "Feces"
 AA = "faith_pd"
 # Year 2015
@@ -91,7 +91,7 @@ anova(regforward.out)
 ```
 The best model from 2015 includes Expo, Age, Expo:Age interaction and Gender (in decreasing importance).
 
-```{r}
+```{r, eval=FALSE}
 # Year 2016
 YY = "2016"
 Work_dat <- Work %>% dplyr::filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers")
@@ -111,7 +111,7 @@ The best model from 2016 includes Expo, Age, Expo:Age interaction (in decreasing
 
 
 So we will fitting the data with Expo, Age, Expo:Age interaction, and Gender for both years to keep unity.
-```{r}
+```{r, eval=FALSE}
 # Final model
 lm_models <- list()
 for (YY in Yrs){
@@ -127,7 +127,7 @@ for (YY in Yrs){
 ```
 
 Next we perform the broken stick regression based on the selected final model
-```{r}
+```{r, eval=FALSE}
 for (YY in Yrs){
   #YY = "2016"
   fit.seg <- segmented(lm_models[[YY]], seg.Z = ~ Age_num, psi = c(3))
@@ -142,7 +142,7 @@ for (YY in Yrs){
 
 It seems from the residual plots that the point with faith_pd smaller than 10 is dragging the curve down and causing non-random residual. 
 
-```{r}
+```{r, eval=FALSE}
 Work %>% dplyr::filter(Body_Site==BB, faith_pd<12, SampleGroup=="Villagers")
 ```
 It does appears that many baby are outliers, so re-do the analysis without baby.
@@ -168,7 +168,7 @@ for (bb in BodySites){
 #### Statisticals
 
 ##### Children
-```{r, eval=FALSE}
+```{r}
 alpha_youngchild_lm_models = list()
 lm.stats.tbl = list()
 for (bb in BodySites){
@@ -179,7 +179,7 @@ for (bb in BodySites){
             lm.stats = Anova(lm.model, type = 3) %>% # Type 3 ss
                 merge(., effectsize::eta_squared(., ci = 0.95), by.x = 0, by.y = 1, all = T) %>% # effect size estimates
                 rename(Factors = Row.names) %>% mutate(Year = yy, Body_Site = bb, Indice = aa)
-            alpha_full_lm_models[[bb]][[aa]][[yy]] = lm.model
+            alpha_youngchild_lm_models[[bb]][[aa]][[yy]] = lm.model
             lm.stats.tbl[[paste(bb, aa, yy, sep = "-")]] = lm.stats
         }
     }
@@ -355,15 +355,12 @@ for (yy in Yrs){
                 ggtitle(bb)
             p_list[[bb]] = p
         }
-        p_f = p_list[["Feces"]] + p_list[["Nose"]] + guide_area() + p_list[["Mouth"]] + p_list[["Right_Arm"]] + p_list[["Right_Hand"]] + plot_layout(guides = "collect", nrow = 2) + plot_annotation(tag_levels = 'A') & theme(plot.tag = element_text(size = 10, face = "bold"))
+        p_f = p_list[["Feces"]] + p_list[["Mouth"]] + guide_area() + p_list[["Nose"]] + p_list[["Right_Arm"]] + p_list[["Right_Hand"]] + plot_layout(guides = "collect", nrow = 2) + plot_annotation(tag_levels = 'A') & theme(plot.tag = element_text(size = 10, face = "bold"))
         print(p_f)
         set_panel_size(p = p_f, g = patchworkGrob(p_f), file = paste0( "../output/figures/alpha_regression_", aa, "_", yy, ".pdf"), width =  unit(3, "in"), height = unit(2.1, "in"))
     }
 }
 ```
-
-
-
 
 ## Effects of year
 
