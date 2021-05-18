@@ -184,35 +184,42 @@ for (bb in BodySites){
     }
 }
 lm.stats.tbls = do.call("rbind", lm.stats.tbl) %>% rename(p_value = `Pr(>F)`) %>% mutate(q_value = p.adjust(p_value, method = "fdr"))
-write.table(lm.stats.tbls, file = "../data/alpha_lm_stats_children.txt", sep = "\t", row.names = F, quote = F)
+
+#o full model (multiple linear regression) statistics for alpha diversity in children
+write.table(lm.stats.tbls, file = "../output/tables/alpha_lm_stats_children.txt", sep = "\t", row.names = F, quote = F)
 
 lm.stats.tbls.2 = lm.stats.tbls %>% dplyr::filter(!is.na(Eta2_partial)) %>% mutate(Factors = factor(Factors, levels = c("Age_num", "Gender", "Expo", "Age_num:Expo", "Age_num:Gender", "Expo:Gender"))) %>% arrange(Body_Site, Indice, Year, Factors)
-    
+
+# p values    
 ggplot(lm.stats.tbls.2, aes(x = Factors, y = q_value, color = Body_Site)) +
     geom_point() +
     geom_path(aes(group = Year, linetype = Year)) +
     facet_grid(Body_Site~Indice) +
     scale_y_continuous(breaks = c(0, 0.05, 0.1, 0.2, 1.0)) +
-    theme_jw(base_size = 12) + theme(aspect.ratio = 0.4, axis.text.x = element_text(angle = 90, hjust = 1), panel.grid.minor = element_blank())
+    theme_jw(base_size = 12) + theme(aspect.ratio = 0.4, axis.text.x = element_text(angle = 90, hjust = 1), panel.grid.minor = element_blank()) +
+    ggtitle("FDR adjusted p-value for full models of alpha diversity in Children")
 
+# eta partial
 ggplot(lm.stats.tbls.2, aes(x = Factors, y = Eta2_partial, color = Body_Site)) +
     geom_point() +
     geom_path(aes(group = Year, linetype = Year)) +
     facet_grid(Body_Site~Indice, scales = "free_y") +
     #scale_y_continuous(breaks = c(0, 0.05, 0.1, 0.2, 1.0)) +
-    theme_jw() + theme(aspect.ratio = 0.4, axis.text.x = element_text(angle = 90, hjust = 1))
+    theme_jw() + theme(aspect.ratio = 0.4, axis.text.x = element_text(angle = 90, hjust = 1)) +
+    ggtitle("Effect size (eta partial) for full models of alpha diversity in Children")
 ```
 No strong interactions obsereved among children
 
 ##### all ages
+Building full multiple linear regression models with interaction terms
 ```{r}
 alpha_full_lm_models = list()
 lm.stats.tbl = list()
 for (bb in BodySites){
     for (aa in Indices){
         for (yy in Yrs){
-            Work_dat <- Work %>% dplyr::filter(Body_Site==bb, Year==yy, SampleGroup=="Villagers", Age_num>=1)
-            lm.model <- lm(paste0(aa, " ~ Age_num + Expo + Gender"), data = Work_dat, contrasts = list(Expo = "contr.sum", Gender = "contr.sum"))
+            Work_dat <- dat_alpha %>% dplyr::filter(Body_Site==bb, Year==yy, SampleGroup=="Villagers", Age_num>=1)
+            lm.model <- lm(paste0(aa, " ~ Age_num + Expo + Gender + Age_num:Expo + Age_num:Gender + Expo:Gender"), data = Work_dat, contrasts = list(Expo = "contr.sum", Gender = "contr.sum"))
             lm.stats = Anova(lm.model, type = 3) %>% # Type 3 ss
                 merge(., effectsize::eta_squared(., ci = 0.95), by.x = 0, by.y = 1, all = T) %>% # effect size estimates
                 rename(Factors = Row.names) %>% mutate(Year = yy, Body_Site = bb, Indice = aa)
@@ -222,29 +229,30 @@ for (bb in BodySites){
     }
 }
 lm.stats.tbl = do.call("rbind", lm.stats.tbl)
-write.table(lm.stats.tbl, file = "../data/alpha_lm_stats.txt", sep = "\t", row.names = F, quote = F)
+#o full model (multiple linear regression) statistics for alpha diversity in all age
+write.table(lm.stats.tbl, file = "../output/tables/alpha_lm_stats.txt", sep = "\t", row.names = F, quote = F)
 
-lm.stats.tbl.2 = lm.stats.tbl %>% dplyr::filter(!is.na(Eta2_partial)) %>% rename(p_value = `Pr(>F)`) %>% mutate(Factors = factor(Factors, levels = c("Age_num", "Gender", "Expo"))) %>% arrange(Body_Site, Indice, Year, Factors)
+lm.stats.tbl.2 = lm.stats.tbl %>% dplyr::filter(!is.na(Eta2_partial)) %>% rename(p_value = `Pr(>F)`) %>% mutate(Factors = factor(Factors, levels = c("Age_num", "Gender", "Expo", "Age_num:Expo", "Age_num:Gender", "Expo:Gender"))) %>% arrange(Body_Site, Indice, Year, Factors)
     
-p1 = ggplot(lm.stats.tbl.2 %>% dplyr::filter(!Indice %in% c("observed_otus", "shannon")), aes(x = Factors, y = p_value, color = Body_Site)) +
+ggplot(lm.stats.tbl.2, aes(x = Factors, y = p_value, color = Body_Site)) +
     geom_point() +
     geom_path(aes(group = Year, linetype = Year)) +
     facet_grid(Body_Site~Indice) +
     scale_y_continuous(breaks = c(0, 0.05, 0.1, 0.2, 1.0)) +
+    coord_cartesian(ylim = c(0, 0.2)) +
     theme_jw() + theme(aspect.ratio = 0.6, axis.text.x = element_text(angle = 90, hjust = 1)) +
     guides(color = F) +
-    ggtitle("p_value")
+    ggtitle("FDR adjusted p-value for full models of alpha diversity in all age")
 
-p2 = ggplot(lm.stats.tbl.2 %>% dplyr::filter(!Indice %in% c("observed_otus", "shannon")), aes(x = Factors, y = Eta2_partial, color = Body_Site)) +
+ggplot(lm.stats.tbl.2, aes(x = Factors, y = Eta2_partial, color = Body_Site)) +
     geom_point() +
     geom_path(aes(group = Year, linetype = Year)) +
     facet_grid(Body_Site~Indice, scales = "free_y") +
     theme_jw() + theme(aspect.ratio = 0.6, axis.text.x = element_text(angle = 90, hjust = 1)) +
     guides(color = F) +
-    ggtitle("Eta2")
+    ggtitle("Effect size (eta-partial) for full models of alpha diversity in all age")
 
-p1 + p2 + plot_layout(guides = "collect")
-ggsave("fig_tmp/alpha_stats.pdf", width = 9)
+#p1 + p2 + plot_layout(guides = "collect")
 ```
 
 For fecal microbiome, exposure, gender, and age are all significant in 2015, with exposure remain significant for 2016 for faith_pd, but not for pielou_e. The effect size of exposure are high, with 2016 has a smaller effect size. The difference seen in faith pd may be due to small number of less abundant species.
