@@ -22,6 +22,7 @@ library(car)
 library(effectsize)
 library(rstatix)
 library(patchwork)
+library(ggbreak)
 
 # set path
 source("../code/utils.R")
@@ -185,8 +186,8 @@ for (bb in BodySites){
 }
 lm.stats.tbls = do.call("rbind", lm.stats.tbl) %>% rename(p_value = `Pr(>F)`) %>% mutate(q_value = p.adjust(p_value, method = "fdr"))
 
-#o full model (multiple linear regression) statistics for alpha diversity in children
-write.table(lm.stats.tbls, file = "../output/tables/alpha_lm_stats_children.txt", sep = "\t", row.names = F, quote = F)
+# full model (multiple linear regression) statistics for alpha diversity in children
+#write.table(lm.stats.tbls, file = "../output/tables/alpha_lm_stats_children.txt", sep = "\t", row.names = F, quote = F)
 
 lm.stats.tbls.2 = lm.stats.tbls %>% dplyr::filter(!is.na(Eta2_partial)) %>% mutate(Factors = factor(Factors, levels = c("Age_num", "Gender", "Expo", "Age_num:Expo", "Age_num:Gender", "Expo:Gender"))) %>% arrange(Body_Site, Indice, Year, Factors)
 
@@ -255,13 +256,7 @@ ggplot(lm.stats.tbl.2, aes(x = Factors, y = Eta2_partial, color = Body_Site)) +
 #p1 + p2 + plot_layout(guides = "collect")
 ```
 
-For fecal microbiome, exposure, gender, and age are all significant in 2015, with exposure remain significant for 2016 for faith_pd, but not for pielou_e. The effect size of exposure are high, with 2016 has a smaller effect size. The difference seen in faith pd may be due to small number of less abundant species.
-
-For mouth and nasal microbiome, the pattern are quite similar, both age and exposure have strong effects to faith_pd, but not for pielou'e. Again, 2016 seems to have less effect of exposure.
-
-For the two skin sites, exposure has a strong effect for both sites in both years to faith_pd. Not pielou's e.
-
-#### Models
+#### Models (No interaction terms)
 ```{r}
 models = list()
 model_tbls = data.frame(BodySite = as.character(),
@@ -273,7 +268,7 @@ model_tbls = data.frame(BodySite = as.character(),
 for (bb in BodySites){
     for (aa in Indices){
         for (yy in Yrs){
-            Work_dat <- Work %>% dplyr::filter(Body_Site==bb, Year==yy, SampleGroup=="Villagers", Age_num>=1)
+            Work_dat <- dat_alpha %>% dplyr::filter(Body_Site==bb, Year==yy, SampleGroup=="Villagers", Age_num>=1)
             # Obtain the full linear model
             fit.full <- lm(paste0(aa, " ~ Age_num + Expo + Gender"), data = Work_dat)
             # Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
@@ -343,20 +338,20 @@ for (yy in Yrs){
         p_list = list()
         for (bb in BodySites){
             #bb = "Feces"
-            dat_ = Work %>% dplyr::filter(Body_Site==bb, Year==yy, SampleGroup=="Villagers", Age_num>=1)
+            dat_ = dat_alpha %>% dplyr::filter(Body_Site==bb, Year==yy, SampleGroup=="Villagers", Age_num>=1)
             dat_pred_ = dat_pred[[bb]][[aa]][[yy]]
             mod = model_tbls %>% dplyr::filter(Body_Site==bb, Year==yy, Indice==aa) %>% pull(Model)
             p = ggplot(dat_, aes_string(x = "Age_num", y = aa, color = "Expo", shape = "Gender")) +
-                geom_point(size = 1, alpha = 0.5) +
+                geom_point(size = 1.5, alpha = 0.5) +
                 geom_line(data = dat_pred_, aes(y = fit, linetype = Gender), size = 0.3) +
                 geom_ribbon(data = dat_pred_, aes(y = fit, ymin = lwr, ymax = upr, fill = Expo, alpha = Gender), color = NA, show.legend = F) +
-                annotate("label", x = Inf, y = Inf, label = str_wrap(paste0(aa, " ~ ", mod), width = 50), hjust = 1, vjust = 1, size = 8/.pt) +
+                annotate("label", x = Inf, y = Inf, label = str_wrap(paste0(aa, " ~ ", mod), width = 50), hjust = 1, vjust = 1, size = 12/.pt) +
                 scale_color_manual(values = Expo_color) +
                 scale_fill_manual(values = Expo_color) +
                 scale_shape_manual(values = c(16, 1)) +
                 scale_linetype_manual(values = c(1, 2)) +
                 scale_alpha_manual(values = c(0.4, 0.2)) +
-                theme_jw(base_size = 10) + theme(aspect.ratio = 0.7, panel.background = element_rect(color = "black"), plot.title = element_text(hjust = 0, vjust = 1), plot.title.position = "panel", legend.key.width = unit(1,"cm"), legend.margin = margin(rep(-3, 4))) +
+                theme_jw(base_size = 14) + theme(aspect.ratio = 0.7, panel.background = element_rect(color = "black"), plot.title = element_text(hjust = 0, vjust = 1), plot.title.position = "panel", legend.key.width = unit(1,"cm"), legend.margin = margin(rep(-3, 4))) +
                 labs(color = "Samples points", linetype = "Regression lines", shape = "", x = "Age (Year)") +
                 guides(color = guide_legend(override.aes = list(alpha = 1, size = 1.5, linetype = c(NA, NA)), order = 1), shape = guide_legend(override.aes = list(size = 1.5, alpha = 1), order = 2), linetype = guide_legend(order = 3)) +
                 ggtitle(bb)
@@ -364,7 +359,7 @@ for (yy in Yrs){
         }
         p_f = p_list[["Feces"]] + p_list[["Mouth"]] + guide_area() + p_list[["Nose"]] + p_list[["Right_Arm"]] + p_list[["Right_Hand"]] + plot_layout(guides = "collect", nrow = 2) + plot_annotation(tag_levels = 'A') & theme(plot.tag = element_text(size = 10, face = "bold"))
         print(p_f)
-        set_panel_size(p = p_f, g = patchworkGrob(p_f), file = paste0( "../output/figures/alpha_regression_", aa, "_", yy, ".pdf"), width =  unit(3, "in"), height = unit(2.1, "in"))
+        #set_panel_size(p = p_f, g = patchworkGrob(p_f), file = paste0( "../output/figures/alpha_regression_", aa, "_", yy, ".pdf"), width =  unit(3, "in"), height = unit(2.1, "in"))
     }
 }
 ```
