@@ -165,7 +165,7 @@ for (bb in BodySites){
     }
 }
 ```
-#### Statisticals
+#### Exploratory Statisticals
 ##### Children
 Building full multiple linear regression models with interaction terms for children
 ```{r}
@@ -256,7 +256,7 @@ ggplot(lm.stats.tbl.2, aes(x = Factors, y = Eta2_partial, color = Body_Site)) +
 #p1 + p2 + plot_layout(guides = "collect")
 ```
 
-#### Models (No interaction terms)
+#### Final Models (No interaction terms)
 ```{r}
 models = list()
 model_tbls = data.frame(BodySite = as.character(),
@@ -340,7 +340,8 @@ for (yy in Yrs){
             #bb = "Feces"
             dat_ = dat_alpha %>% dplyr::filter(Body_Site==bb, Year==yy, SampleGroup=="Villagers", Age_num>=1)
             dat_pred_ = dat_pred[[bb]][[aa]][[yy]]
-            mod = model_tbls %>% dplyr::filter(Body_Site==bb, Year==yy, Indice==aa) %>% pull(Model)
+            #mod = model_tbls %>% dplyr::filter(Body_Site==bb, Year==yy, Indice==aa) %>% pull(Model)
+            (models[[bb]][[aa]][[yy]] %>% car::Anova(type = "3") %>% as.data.frame())["Expo", "Pr(>F)"] %>% 
             p = ggplot(dat_, aes_string(x = "Age_num", y = aa, color = "Expo", shape = "Gender")) +
                 geom_point(size = 1.5, alpha = 0.5) +
                 geom_line(data = dat_pred_, aes(y = fit, linetype = Gender), size = 0.3) +
