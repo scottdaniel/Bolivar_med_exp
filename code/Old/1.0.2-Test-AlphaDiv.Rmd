@@ -1,0 +1,363 @@
+---
+title: "Alpha Diversity"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+library(knitr)
+options(max.print="75")
+opts_chunk$set(echo = TRUE, cache = TRUE, warning = FALSE, prompt=FALSE, tidy = TRUE, comment = NA, message = FALSE)
+opts_knit$set(width=75)
+
+# Loading library here
+library(tidyverse)
+#library(ggpubr)
+library(MASS)
+library(segmented)
+library(agricolae)
+library(car)
+library(effectsize)
+
+# set path
+source("~/Dropbox/42-JCHWANG-RUTGERS/Projects-Rutgers/Src/utils.R")
+
+```
+## Initial setup
+**Setup color index**
+```{r}
+# Exposure level
+Expo_color <- c("#66c2a5", "#fc8d62", "#8da0cb")
+names(Expo_color) <- c("Low", "Medium", "High")
+print(Expo_color)
+#plot(1:3, 1:3, col = Expo_color, pch = 16, cex = 4)
+# Ethnicity
+Ethnicity_color <- gg_color_hue(3)
+names(Ethnicity_color) <- c("SANEMA", "YEKWANA", "Visitors")
+print(Ethnicity_color)
+
+Sanemas <- c("Chajuranha", "Mosenahanha", "Kuyuwininha", "Shianana-Jiyakwanha", "Washudihanha", "Sudukuma")
+Yekwana <- c("Kanarakuni", "Fiyakwanha")
+```
+
+**Import the data**
+```{r}
+# Alpha diversities
+alpha = readRDS("../data/alpha_imported_all.RDS")
+```
+```{r class.source='fold-show'}
+# Mapping
+## This mapping files include all villagers and baseline of visitors of all body sites
+mt_ms = readRDS("../data/Mapping_MS_Expo.Rds")
+Mapping_work <- mt_ms %>% mutate(Expo = ifelse(Ethnicity=="SANEMA", "Low", ifelse(Village=="Fiyakwanha", "Low", ifelse(SampleGroup=="Visitors", "High", "Medium"))) %>% factor(levels = c("Low", "Medium", "High")), Age_num = as.numeric(Age), Age_num = ifelse(is.na(Age_num), as.numeric(gsub(pattern = "_months", replacement = "", Age, ignore.case = T))/12, Age_num), Age_grp1 = ifelse(Age_num>=18, "Adults", "Children"))
+Mapping_work$Age_num[Mapping_work$Age=="4_Days"] <- 0
+Mapping_work$Age_num[Mapping_work$Age=="1_day"] <- 0
+```
+
+**Set up the Analysis**
+```{r}
+Work <- merge(alpha, Mapping_work, by = 1) %>% mutate(Age_grp2 = case_when(Age_num<=3 ~ "Age_0-3", Age_num<=8 ~ "Age_3-8", Age_num<18 ~ "Age_8-18", T ~ "Adults"))
+```
+
+## Impacts on exposure level
+```{r}
+Indices <- colnames(alpha[c(2:5)])
+Yrs <- c("2015", "2016")
+BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand")
+```
+### Initial test on feces (no need to run)
+**We first check the faith_pd which described the overall complexity of the microbial community.**
+```{r}
+BB = "Feces"
+AA = "faith_pd"
+# Year 2015
+YY = "2015"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers")
+
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Expo + Gender + Age_num:Expo + Age_num:Gender + Expo:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Expo + Gender + Age_num:Expo + Age_num:Gender + Expo:Gender)
+
+anova(regforward.out)
+```
+The best model from 2015 includes Expo, Age, Expo:Age interaction and Gender (in decreasing importance).
+
+```{r}
+# Year 2016
+YY = "2016"
+Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers")
+
+# Obtain the full linear model
+fit.full <- lm(get(AA) ~ Age_num + Expo + Gender + Age_num:Expo + Age_num:Gender + Expo:Gender, data = Work_dat)
+
+# Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+fit.null <- lm(get(AA) ~ 1, data = Work_dat)
+
+# Forward selection, scope parameters provides the full model
+regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Expo + Gender + Age_num:Expo + Age_num:Gender + Expo:Gender)
+
+anova(regforward.out)
+```
+The best model from 2016 includes Expo, Age, Expo:Age interaction (in decreasing importance), but Gender was not there.
+
+
+So we will fitting the data with Expo, Age, Expo:Age interaction, and Gender for both years to keep unity.
+```{r}
+# Final model
+lm_models <- list()
+for (YY in Yrs){
+  Work_dat <- Work %>% filter(Body_Site==BB, Year==YY, SampleGroup=="Villagers")
+  fit.final <- lm(as.formula(paste0(AA, " ~ Age_num + Expo + Age_num:Expo + Gender")), data = Work_dat)
+  print(paste0("--------Below is ANOVA table for year ", YY))
+  anova(fit.final) %>% print()
+  
+  print(paste0("--------Below is coefficient for year ", YY))
+  summary(fit.final) %>% print()
+  lm_models[[YY]] <- fit.final
+}
+```
+
+Next we perform the broken stick regression based on the selected final model
+```{r}
+for (YY in Yrs){
+  #YY = "2016"
+  fit.seg <- segmented(lm_models[[YY]], seg.Z = ~ Age_num, psi = c(3))
+  summary(fit.seg)
+  plot(fit.seg$fitted.values, fit.seg$residuals)
+  plot(fit.seg$model$faith_pd, fit.seg$fitted.values)
+  plot(fit.seg$model$Age_num, hatvalues(fit.seg))
+  plot(fit.seg$model$Age_num, cooks.distance(fit.seg))
+  plot(hatvalues(fit.seg), fit.seg$residuals)
+}
+```
+
+It seems from the residual plots that the point with faith_pd smaller than 10 is dragging the curve down and causing non-random residual. 
+
+```{r}
+Work %>% filter(Body_Site==BB, faith_pd<12, SampleGroup=="Villagers")
+```
+It does appears that many baby are outliers, so re-do the analysis without baby.
+
+### Modeling without babies
+#### Overview
+```{r}
+for (bb in BodySites){
+    for (aa in Indices){
+        Work_dat <- Work %>% filter(Body_Site==bb, SampleGroup=="Villagers", Age_num>=1)
+        p <- ggplot(Work_dat, aes(x = Age_num, y = get(aa), color = Expo, shape = Gender)) +
+            geom_point(size = 1.5) +
+            scale_shape_manual(values = c(16, 21)) +
+            scale_color_manual(breaks = names(Expo_color), values = Expo_color) +
+            facet_grid(.~Year) +
+            theme_jw() + theme(aspect.ratio = 0.8, panel.background = element_rect(color = "black")) +
+            labs(x = "Age (Years)", y = aa, title = bb)
+        print(p)
+        ggsave(filename = paste0("fig_tmp/alpha_overview_", bb, "_", aa, ".pdf"))
+    }
+}
+```
+#### Statisticals
+
+##### Children
+```{r, eval=FALSE}
+alpha_youngchild_lm_models = list()
+lm.stats.tbl = list()
+for (bb in BodySites){
+    for (aa in Indices){
+        for (yy in Yrs){
+            Work_dat <- Work %>% filter(Body_Site==bb, Year==yy, SampleGroup=="Villagers", Age_num>=1, Age_num<18)
+            lm.model <- lm(paste0(aa, " ~ Age_num + Expo + Gender + Age_num:Expo + Age_num:Gender + Expo:Gender"), data = Work_dat, contrasts = list(Expo = "contr.sum", Gender = "contr.sum"))
+            lm.stats = Anova(lm.model, type = 3) %>% # Type 3 ss
+                merge(., eta_squared(., ci = 0.95), by.x = 0, by.y = 1, all = T) %>% # effect size estimates
+                rename(Factors = Row.names) %>% mutate(Year = yy, Body_Site = bb, Indice = aa)
+            alpha_full_lm_models[[bb]][[aa]][[yy]] = lm.model
+            lm.stats.tbl[[paste(bb, aa, yy, sep = "-")]] = lm.stats
+        }
+    }
+}
+lm.stats.tbl = do.call("rbind", lm.stats.tbl)
+write.table(lm.stats.tbl, file = "../data/alpha_lm_stats_children.txt", sep = "\t", row.names = F, quote = F)
+
+lm.stats.tbl.2 = lm.stats.tbl %>% filter(!is.na(Eta2_partial)) %>% rename(p_value = `Pr(>F)`) %>% mutate(Factors = factor(Factors, levels = c("Age_num", "Gender", "Expo", "Age_num:Expo", "Age_num:Gender", "Expo:Gender"))) %>% arrange(Body_Site, Indice, Year, Factors)
+    
+ggplot(lm.stats.tbl.2 %>% filter(!Indice %in% c("observed_otus", "shannon")), aes(x = Factors, y = p_value, color = Body_Site)) +
+    geom_point() +
+    geom_path(aes(group = Year, linetype = Year)) +
+    facet_grid(Body_Site~Indice) +
+    scale_y_continuous(breaks = c(0, 0.05, 0.1, 0.2, 1.0)) +
+    theme_jw() + theme(aspect.ratio = 0.6, axis.text.x = element_text(angle = 90, hjust = 1))
+
+ggplot(lm.stats.tbl.2 %>% filter(!Indice %in% c("observed_otus", "shannon")), aes(x = Factors, y = Eta2_partial, color = Body_Site)) +
+    geom_point() +
+    geom_path(aes(group = Year, linetype = Year)) +
+    facet_grid(Body_Site~Indice, scales = "free_y") +
+    #scale_y_continuous(breaks = c(0, 0.05, 0.1, 0.2, 1.0)) +
+    theme_jw() + theme(aspect.ratio = 0.6, axis.text.x = element_text(angle = 90, hjust = 1))
+```
+No strong interactions obsereved among children
+
+##### all ages
+```{r}
+alpha_full_lm_models = list()
+lm.stats.tbl = list()
+for (bb in BodySites){
+    for (aa in Indices){
+        for (yy in Yrs){
+            Work_dat <- Work %>% filter(Body_Site==bb, Year==yy, SampleGroup=="Villagers", Age_num>=1)
+            lm.model <- lm(paste0(aa, " ~ Age_num + Expo + Gender"), data = Work_dat, contrasts = list(Expo = "contr.sum", Gender = "contr.sum"))
+            lm.stats = Anova(lm.model, type = 3) %>% # Type 3 ss
+                merge(., eta_squared(., ci = 0.95), by.x = 0, by.y = 1, all = T) %>% # effect size estimates
+                rename(Factors = Row.names) %>% mutate(Year = yy, Body_Site = bb, Indice = aa)
+            alpha_full_lm_models[[bb]][[aa]][[yy]] = lm.model
+            lm.stats.tbl[[paste(bb, aa, yy, sep = "-")]] = lm.stats
+        }
+    }
+}
+lm.stats.tbl = do.call("rbind", lm.stats.tbl)
+write.table(lm.stats.tbl, file = "../data/alpha_lm_stats.txt", sep = "\t", row.names = F, quote = F)
+
+lm.stats.tbl.2 = lm.stats.tbl %>% filter(!is.na(Eta2_partial)) %>% rename(p_value = `Pr(>F)`) %>% mutate(Factors = factor(Factors, levels = c("Age_num", "Gender", "Expo"))) %>% arrange(Body_Site, Indice, Year, Factors)
+    
+p1 = ggplot(lm.stats.tbl.2 %>% filter(!Indice %in% c("observed_otus", "shannon")), aes(x = Factors, y = p_value, color = Body_Site)) +
+    geom_point() +
+    geom_path(aes(group = Year, linetype = Year)) +
+    facet_grid(Body_Site~Indice) +
+    scale_y_continuous(breaks = c(0, 0.05, 0.1, 0.2, 1.0)) +
+    theme_jw() + theme(aspect.ratio = 0.6, axis.text.x = element_text(angle = 90, hjust = 1)) +
+    guides(color = F) +
+    ggtitle("p_value")
+
+p2 = ggplot(lm.stats.tbl.2 %>% filter(!Indice %in% c("observed_otus", "shannon")), aes(x = Factors, y = Eta2_partial, color = Body_Site)) +
+    geom_point() +
+    geom_path(aes(group = Year, linetype = Year)) +
+    facet_grid(Body_Site~Indice, scales = "free_y") +
+    theme_jw() + theme(aspect.ratio = 0.6, axis.text.x = element_text(angle = 90, hjust = 1)) +
+    guides(color = F) +
+    ggtitle("Eta2")
+
+p1 + p2 + plot_layout(guides = "collect")
+ggsave("fig_tmp/alpha_stats.pdf", width = 9)
+```
+
+For fecal microbiome, exposure, gender, and age are all significant in 2015, with exposure remain significant for 2016 for faith_pd, but not for pielou_e. The effect size of exposure are high, with 2016 has a smaller effect size. The difference seen in faith pd may be due to small number of less abundant species.
+
+For mouth and nasal microbiome, the pattern are quite similar, both age and exposure have strong effects to faith_pd, but not for pielou'e. Again, 2016 seems to have less effect of exposure.
+
+For the two skin sites, exposure has a strong effect for both sites in both years to faith_pd. Not pielou's e.
+
+#### Models
+```{r}
+models = list()
+model_tbls = data.frame(BodySite = as.character(),
+                        Index = as.character(),
+                        Year = as.character(),
+                        Model = as.character(),
+                        Model.type = as.character())
+
+for (bb in BodySites){
+    for (aa in Indices){
+        for (yy in Yrs){
+            Work_dat <- Work %>% filter(Body_Site==bb, Year==yy, SampleGroup=="Villagers", Age_num>=1)
+            # Obtain the full linear model
+            fit.full <- lm(paste0(aa, " ~ Age_num + Expo + Gender"), data = Work_dat)
+            # Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
+            fit.null <- lm(paste0(aa, " ~ 1"), data = Work_dat)
+            
+            # Forward selection, scope parameters provides the full model
+            regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Expo + Gender)
+            
+            lm.model <- lm(regforward.out$terms, data = Work_dat, contrasts = list(Expo = "contr.sum", Gender = "contr.sum"))
+            lm.model.anova = car::Anova(lm.model, type = 3)
+            
+            if ("Age_num" %in% rownames(lm.model.anova)){
+                fit.seg <- segmented(regforward.out, seg.Z = ~ Age_num, psi = 9)
+                model_comp = anova(fit.seg, lm.model)
+                if (!is.na(model_comp[2, 6]) & model_comp[2, 6]<=0.05){
+                    fit.final = fit.seg
+                    summary(fit.seg) %>% print()
+                    davies.test(lm.model, seg.Z = ~ Age_num, k = 10) %>% print()
+                    confint.segmented(fit.seg) %>% print()
+                    slope(fit.seg) %>% print()
+                } else {
+                    fit.final = lm.model
+                }
+            } else {
+                fit.final = lm.model
+            }
+            plot(fit.final$fitted.values, fit.final$residuals)
+            plot((fit.final$model)[, 1], fit.final$fitted.values)
+            plot(hatvalues(fit.final), fit.final$residuals)
+            qqnorm(fit.final$residuals)
+            ff = (fit.final$terms %>% as.character())[3]
+            models[[bb]][[aa]][[yy]] = fit.final
+            if ("segmented" %in% class(fit.final)){
+                model_tbls = rbind(model_tbls, cbind(bb, aa, yy, ff, "segmented"))
+            } else {
+                model_tbls = rbind(model_tbls, cbind(bb, aa, yy, ff, "linear"))
+            }
+        }
+    }
+}
+colnames(model_tbls) = c("Body_Site", "Indice", "Year", "Model", "Model.type")
+```
+#### Graphs
+```{r}
+Indices <- colnames(alpha[c(2:5)])
+Yrs <- c("2015", "2016")
+BodySites <- c("Feces", "Nose", "Mouth", "Right_Arm", "Right_Hand")
+
+dat_new = complete(cbind(Age_num = seq(1, 60, 1), 
+                         Expo = c("Low", "Medium"), 
+                         Gender = c("F", "M")) %>% 
+                     as.data.frame(), Age_num, Expo, Gender) %>% 
+  mutate(Age_num = as.numeric(Age_num))
+
+dat_pred = list()
+for (bb in BodySites){
+  for (aa in Indices){
+    for(yy in Yrs){
+      dat_pred[[bb]][[aa]][[yy]] = cbind(dat_new, predict(models[[bb]][[aa]][[yy]], newdata = dat_new, interval = "confidence"))
+      
+    }
+  }
+}
+for (yy in Yrs){
+    for (aa in Indices){
+        #aa = "faith_pd"
+        p_list = list()
+        for (bb in BodySites){
+            #bb = "Feces"
+            dat_ = Work %>% filter(Body_Site==bb, Year==yy, SampleGroup=="Villagers", Age_num>=1)
+            dat_pred_ = dat_pred[[bb]][[aa]][[yy]]
+            mod = model_tbls %>% filter(Body_Site==bb, Year==yy, Indice==aa) %>% pull(Model)
+            p = ggplot(dat_, aes_string(x = "Age_num", y = aa, color = "Expo", shape = "Gender")) +
+                geom_point(size = 1, alpha = 0.5) +
+                geom_line(data = dat_pred_, aes(y = fit, linetype = Gender), size = 0.3) +
+                geom_ribbon(data = dat_pred_, aes(y = fit, ymin = lwr, ymax = upr, fill = Expo, alpha = Gender), color = NA, show.legend = F) +
+                annotate("label", x = Inf, y = Inf, label = str_wrap(paste0(aa, " ~ ", mod), width = 50), hjust = 1, vjust = 1, size = 8/.pt) +
+                scale_color_manual(values = Expo_color) +
+                scale_fill_manual(values = Expo_color) +
+                scale_shape_manual(values = c(16, 1)) +
+                scale_linetype_manual(values = c(1, 2)) +
+                scale_alpha_manual(values = c(0.4, 0.2)) +
+                theme_jw(base_size = 10) + theme(aspect.ratio = 0.7, panel.background = element_rect(color = "black"), plot.title = element_text(hjust = 0, vjust = 1), plot.title.position = "panel", legend.key.width = unit(1,"cm"), legend.margin = margin(rep(-3, 4))) +
+                labs(color = "Samples points", linetype = "Regression lines", shape = "", x = "Age (Year)") +
+                guides(color = guide_legend(override.aes = list(alpha = 1, size = 1.5, linetype = c(NA, NA)), order = 1), shape = guide_legend(override.aes = list(size = 1.5, alpha = 1), order = 2), linetype = guide_legend(order = 3)) +
+                ggtitle(bb)
+            p_list[[bb]] = p
+        }
+        p_f = p_list[["Feces"]] + p_list[["Nose"]] + guide_area() + p_list[["Mouth"]] + p_list[["Right_Arm"]] + p_list[["Right_Hand"]] + plot_layout(guides = "collect", nrow = 2) + plot_annotation(tag_levels = 'A') & theme(plot.tag = element_text(size = 10, face = "bold"))
+        print(p_f)
+        set_panel_size(p = p_f, g = patchworkGrob(p_f), file = paste0( "../output/figures/alpha_regression_", aa, "_", yy, ".pdf"), width =  unit(3, "in"), height = unit(2.1, "in"))
+    }
+}
+```
+
+
