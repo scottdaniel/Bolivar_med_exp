@@ -284,16 +284,17 @@ for (bb in BodySites){
                 model_comp = anova(fit.seg, lm.model)
                 if (!is.na(model_comp[2, 6]) & model_comp[2, 6]<=0.05){
                     fit.final = fit.seg
-                    summary(fit.seg) %>% print()
-                    davies.test(lm.model, seg.Z = ~ Age_num, k = 10) %>% print()
-                    confint.segmented(fit.seg) %>% print()
-                    slope(fit.seg) %>% print()
+                    # summary(fit.seg) %>% print()
+                    fit.final$davies <- davies.test(lm.model, seg.Z = ~ Age_num, k = 10)
+                    # confint.segmented(fit.seg) %>% print()
+                    # slope(fit.seg) %>% print()
                 } else {
                     fit.final = lm.model
                 }
             } else {
                 fit.final = lm.model
             }
+            par(mfrow = c(2, 2))
             plot(fit.final$fitted.values, fit.final$residuals)
             plot((fit.final$model)[, 1], fit.final$fitted.values)
             plot(hatvalues(fit.final), fit.final$residuals)
@@ -308,6 +309,7 @@ for (bb in BodySites){
         }
     }
 }
+
 colnames(model_tbls) = c("Body_Site", "Indice", "Year", "Model", "Model.type")
 model_tbls$Model <- gsub(" + psi1.Age_num", "", model_tbls$Model, fixed = T) %>% paste0(model_tbls$Indice, " ~ ", .)
 
@@ -315,11 +317,22 @@ fit_stats_final <- list()
 for (bb in BodySites){
     for (aa in Indices){
         for (yy in Yrs){
-            if (length(models[[bb]][[aa]][[yy]]$coefficients)==1){
+            fit_ = models[[bb]][[aa]][[yy]]
+            if(fit_$coefficients==1){
                 next
+            } 
+            
+            if("segmented" %in% class(fit_)){
+                
             } else {
-                fit_stats = models[[bb]][[aa]][[yy]] %>% Anova(., type = 3) %>% merge(., effectsize::eta_squared(., ci = 0.95), by.x = 0, by.y = 1, all = T) %>% # effect size estimates
-                    rename(Factors = Row.names) %>% mutate(Year = yy, Body_Site = bb, Indice = aa) %>% print
+                fit_anova = models[[bb]][[aa]][[yy]] %>% Anova(., type = 3) 
+                fit_omega = omega_squared(fit_anova, ci = 0.95) # effect size estimates
+                fit_estimate = as.data.frame(summary(fit_)$Ttable)["Estimate"]
+                fit_estimate$Factor = rownames(fit_anova)[sapply(rownames(fit_estimate), function(x){which(startsWith(x, rownames(fit_anova)))})]
+                
+                fit_stats = merge(fit_estimate, fit_anova, by.x = "Factor", by.y = 0, all.x = T) %>% merge(., fit_omega, by = 1, all.x = T) 
+                fit_stats[which(fit_stats$Factor=="U1.Age_num"), ]$`Pr(>F)` = NA
+                
             }
             fit_stats_final[[paste(bb, aa, yy, sep = "-")]] = fit_stats  %>% rename(p_value = `Pr(>F)`)
         }
