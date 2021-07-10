@@ -318,23 +318,23 @@ for (bb in BodySites){
     for (aa in Indices){
         for (yy in Yrs){
             fit_ = models[[bb]][[aa]][[yy]]
-            if(fit_$coefficients==1){
+            if(length(fit_$coefficients)==1){
                 next
-            } 
-            
+            }
+            fit_anova = models[[bb]][[aa]][[yy]] %>% Anova(., type = 3) 
+            fit_omega = omega_squared(fit_anova, ci = 0.95)
             if("segmented" %in% class(fit_)){
-                
-            } else {
-                fit_anova = models[[bb]][[aa]][[yy]] %>% Anova(., type = 3) 
-                fit_omega = omega_squared(fit_anova, ci = 0.95) # effect size estimates
+                 # effect size estimates
                 fit_estimate = as.data.frame(summary(fit_)$Ttable)["Estimate"]
                 fit_estimate$Factor = rownames(fit_anova)[sapply(rownames(fit_estimate), function(x){which(startsWith(x, rownames(fit_anova)))})]
                 
                 fit_stats = merge(fit_estimate, fit_anova, by.x = "Factor", by.y = 0, all.x = T) %>% merge(., fit_omega, by = 1, all.x = T) 
                 fit_stats[which(fit_stats$Factor=="U1.Age_num"), ]$`Pr(>F)` = NA
+            } else {
+                fit_anova = 
                 
             }
-            fit_stats_final[[paste(bb, aa, yy, sep = "-")]] = fit_stats  %>% rename(p_value = `Pr(>F)`)
+            fit_stats_final[[paste(bb, aa, yy, sep = "-")]] = fit_stats %>% rename(p_value = `Pr(>F)`)
         }
     }
 }
