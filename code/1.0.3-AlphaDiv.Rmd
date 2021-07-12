@@ -267,19 +267,19 @@ model_tbls = data.frame(BodySite = as.character(),
 for (bb in BodySites){
     for (aa in Indices){
         for (yy in Yrs){
-            Work_dat <- dat_alpha %>% dplyr::filter(Body_Site==bb, Year==yy, SampleGroup=="Villagers", Age_num>=1)
+            Work_dat <- dat_alpha %>% dplyr::filter(Body_Site==bb, Year==yy, SampleGroup=="Villagers", Age_num>=1) %>%
+                mutate(ExpoC = ifelse(Expo=="Low", -0.5, 0.5), GenderC = ifelse(Gender=="M", -0.5, 0.5)) # recoding for the contrast
             # Obtain the full linear model
-            fit.full <- lm(paste0(aa, " ~ Age_num + Expo + Gender"), data = Work_dat)
+            fit.full <- lm(paste0(aa, " ~ Age_num + ExpoC + GenderC"), data = Work_dat)
             # Obtain the null model with no predictors, this is necessary for forward selection use stepAIC
             fit.null <- lm(paste0(aa, " ~ 1"), data = Work_dat)
             
             # Forward selection, scope parameters provides the full model
-            regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + Expo + Gender)
+            regforward.out <- stepAIC(fit.null, direction = "forward", trace = 4, scope = ~ Age_num + ExpoC + GenderC)
             
-            lm.model <- lm(regforward.out$terms, data = Work_dat, contrasts = list(Expo = "contr.sum", Gender = "contr.sum"))
-            lm.model.anova = car::Anova(lm.model, type = 3)
-            
-            if ("Age_num" %in% rownames(lm.model.anova)){
+            lm.model <- lm(regforward.out$terms, data = Work_dat)
+
+            if ("Age_num" %in% names(lm.model$coefficients)){
                 fit.seg <- segmented(regforward.out, seg.Z = ~ Age_num, psi = 9)
                 model_comp = anova(fit.seg, lm.model)
                 if (!is.na(model_comp[2, 6]) & model_comp[2, 6]<=0.05){
@@ -322,24 +322,40 @@ for (bb in BodySites){
                 next
             }
             fit_anova = models[[bb]][[aa]][[yy]] %>% Anova(., type = 3) 
-            fit_omega = omega_squared(fit_anova, ci = 0.95)
+            fit_omega = omega_squared(fit_anova, ci = 0.95) 
             if("segmented" %in% class(fit_)){
                  # effect size estimates
-                fit_estimate = as.data.frame(summary(fit_)$Ttable)["Estimate"]
-                fit_estimate$Factor = rownames(fit_anova)[sapply(rownames(fit_estimate), function(x){which(startsWith(x, rownames(fit_anova)))})]
-                
-                fit_stats = merge(fit_estimate, fit_anova, by.x = "Factor", by.y = 0, all.x = T) %>% merge(., fit_omega, by = 1, all.x = T) 
+                fit_estimate = as.data.frame(summary(fit_)$Ttable)["Estimate"] %>% rownames_to_column(var = "Factor")
+                fit_stats = merge(fit_estimate, fit_anova, by.x =1, by.y = 0, all = T) %>% merge(., fit_omega, by = 1, all = T) %>% rename(Coefficient = Estimate) %>% filter(Factor != "psi1.Age_num")
                 fit_stats[which(fit_stats$Factor=="U1.Age_num"), ]$`Pr(>F)` = NA
             } else {
-                fit_anova = 
-                
+                fit_estimate = as.data.frame(parameters::model_parameters(fit_)) %>% select(Parameter, Coefficient)
+                fit_stats = merge(fit_estimate, fit_anova, by.x = 1, by.y = 0, all = T) %>% merge(., fit_omega, by = 1, all = T) %>% rename(Factor = Parameter)
+
             }
-            fit_stats_final[[paste(bb, aa, yy, sep = "-")]] = fit_stats %>% rename(p_value = `Pr(>F)`)
+            fit_stats_final[[paste(bb, aa, yy, sep = "-")]] = fit_stats %>% rename(p_value = `Pr(>F)`) %>% mutate(Body_Site = bb, Indice = aa, Year = yy)
         }
     }
 }
-fit_stats_final.tbl = data.table::rbindlist(fit_stats_final, use.names = T, fill = T) %>% arrange(Body_Site, Indice, Year, Factors)
+fit_stats_final.tbl = data.table::rbindlist(fit_stats_final, use.names = T, fill = T) %>% arrange(Body_Site, Indice, Year, Factor) %>% mutate(Omega2_partial = ifelse(is.na(Omega2), Omega2_partial, Omega2), Omega2 = NULL)
 write.table(fit_stats_final.tbl, file = "../results/tables/alpha_fit_stats_final.txt", sep = "\t", row.names = F, quote = F)
+
+cols_to_extract = c("Coefficient", "p_value", "Omega2_out")
+spec <- tibble(
+    .name = rep(Indices, 3) %>% sort() %>% paste(., c("Coefficient", "p_value", "Omega2_out"), sep = "_"),
+    .value = rep(cols_to_extract, 4),
+    Indice = rep(Indices, 3) %>% sort()
+)
+fit_stats_final.tbl %>% filter(!is.na(Omega2_partial)) %>% complete(Body_Site, Year, Factor) %>%
+    mutate(
+        Coefficient = ifelse(Indice %in% c("faith_pd", "observed_otus"), round(Coefficient, 2), round(Coefficient, 3)), 
+        p_value = ifelse(p_value<0.001, "<0.001", as.character(round(p_value, 3))), 
+        Omega2_partial = round(Omega2_partial, 3),
+        CI_low = round(CI_low, 3),
+        CI_high = round(CI_high, 3),
+        Omega2_out = paste0(Omega2_partial, "(", CI_low, ", ", CI_high, ")"),
+        Factor = factor(Factor, levels = c("ExpoC", "Age_num", "U1.Age_num", "GenderC"))
+        ) %>% pivot_wider_spec(id_cols = c(Factor, Body_Site, Year), spec) %>% arrange(Body_Site, Year, Factor) %>% write_clip(object_type = "table")
 ```
 #### Graphs
 ```{r}
