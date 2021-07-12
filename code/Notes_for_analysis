@@ -1,4 +1,0 @@
-
-## Comments of segmented regression
-
-The brokenstick/piecewise/segmented regression is performed using the `segmented` [link](https://cran.r-project.org/web/packages/segmented/index.html) R package. The ANOVA table or coefficient table would export additional terms as compared to traditional ANOVA table for `lm` or `glm` models: `U1.Variable` and `psi1.Variable`. Here, `U1.Variable` correspond to either the variable $(z_i - \psi)_+$ in [link](https://www.r-project.org/doc/Rnews/Rnews_2008-1.pdf) or its coefficient $\beta_2$. And `psi1.Variable` appears to correspond to the broken point itself, aka $\psi$. But according to the authors, the standard error and p value of `U1.Variable` should be derived from Davies test. So these stats have to be estimated separately.

@@ -22,6 +22,8 @@ library(car)
 library(effectsize)
 library(rstatix)
 library(patchwork)
+library(clipr)
+library(ggbeeswarm)
 
 # set path
 source("assets/utils.R")
@@ -412,87 +414,123 @@ for (yy in Yrs){
 }
 ```
 
-<!-- ## Effects of year -->
+## Effects of year
 
-<!-- ```{r} -->
-<!-- Indices <- colnames(alpha[c(2:5)]) -->
-<!-- BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand") -->
-<!-- ``` -->
+```{r}
+Indices <- colnames(alpha[c(2:5)])
+BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand")
+```
+```{r}
 
-<!-- ```{r} -->
-<!-- for (bb in BodySites){ -->
-<!--     for (aa in Indices){ -->
-<!--         #break -->
-<!--         dat_ = Work %>% dplyr::filter(Body_Site==bb, SampleGroup=="Villagers", Age_num>=1) %>% mutate(Year = as.character(Year), Age_grp2 = factor(Age_grp2, levels = c("Age_0-3", "Age_3-8", "Age_8-18", "Adults"))) -->
+```
 
-<!--         dat_.test = dat_ %>% group_by(Expo, Age_grp2) %>% wilcox_test(formula(paste0(aa, "~ Year"))) %>% add_xy_position(x = "Age_grp2", dodge = 0.7) %>% ungroup() %>% mutate(p.adj = p.adjust(p, method = "fdr") %>% round(digits = 3), p.adj.signif = ifelse(p.adj<=0.1, p.adj, "ns")) -->
+```{r}
+stats_test <- list()
+for (bb in BodySites){
+    for (aa in Indices){
+        #break
+        dat_ = dat_alpha %>% dplyr::filter(Body_Site==bb, SampleGroup=="Villagers", Age_num>=1) %>% mutate(Year = as.character(Year), Age_grp2 = factor(Age_grp2, levels = c("Age_0-3", "Age_3-8", "Age_8-18", "Adults")))
+        dat_.test = dat_ %>% group_by(Expo, Age_grp2) %>% wilcox_test(formula(paste0(aa, "~ Year"))) %>% add_xy_position(x = "Age_grp2", dodge = 0.7) %>% ungroup() %>% mutate(p.adj = p.adjust(p, method = "fdr") %>% round(digits = 3), p.adj.signif = ifelse(p.adj<=0.1, p.adj, "ns"), Body_Site = bb) %>% merge(., dat_ %>% group_by(Expo, Age_grp2, Year) %>% summarise(Mean = mean(get(aa))) %>% summarise(Diff = Mean[Year==2016]-Mean[Year==2015], Diff_pct = Diff/Mean[Year==2015]), by = c("Expo", "Age_grp2"))
+        stats_test[[paste(bb, aa, sep = "-")]] <- dat_.test
+        next
 
-<!--         ggplot(dat_, aes_string(x = "Age_grp2", y = aa, color = "Year")) + -->
-<!--             geom_point(size = 0.75, position = position_jitterdodge(jitter.width = 0.1, dodge.width = 0.7)) + -->
-<!--             geom_boxplot(aes(fill = Year), width = 0.5, color = "black", position = position_dodge(width = 0.7), size = 0.2, outlier.alpha = 0) + -->
-<!--             stat_pvalue_manual(dat_.test, label = "p.adj", tip.length = 0, size = 8/.pt) + -->
-<!--             facet_grid(.~Expo) + -->
-<!--             theme_jw(base_size = 8) + theme(aspect.ratio = 0.8, legend.position = "top", legend.direction = "horizontal", panel.background = element_rect(color = "black"), plot.title = element_text(hjust = 0, vjust = 1), plot.title.position = "panel") + -->
-<!--             scale_fill_manual(values = c(NA, NA)) + -->
-<!--             scale_color_manual(values = c("#80b1d3", "#fb8072")) + -->
-<!--             labs(x = "") + ggtitle(bb) -->
-<!--         set_panel_size(p = last_plot(), file = paste0( "fig_tmp/alpha_compare_year_", aa, "_", bb, ".pdf"), width =  unit(3, "in"), height = unit(2.4, "in")) -->
-<!--     } -->
-<!-- } -->
-<!-- ``` -->
+        p <- ggplot(dat_, aes_string(x = "Age_grp2", y = aa, color = "Year")) +
+            geom_boxplot(aes(fill = Year), width = 0.5, color = "black", position = position_dodge(width = 0.7), size = 0.2, outlier.alpha = 0, alpha = 0.5) +
+            geom_point(size = 0.75, position = position_jitterdodge(jitter.width = 0.1, dodge.width = 0.7)) +
+            stat_pvalue_manual(dat_.test, label = "p.adj", tip.length = 0, size = 8/.pt) +
+            facet_grid(.~Expo) +
+            theme_jw(base_size = 8) + theme(aspect.ratio = 0.8, legend.position = "top", legend.direction = "horizontal", panel.background = element_rect(color = "black"), plot.title = element_text(hjust = 0, vjust = 1), plot.title.position = "panel") +
+            scale_fill_manual(values = c("#80b1d3", "#fb8072")) +
+            scale_color_manual(values = c("#80b1d3", "#fb8072")) +
+            labs(x = "") + ggtitle(bb)
+        print(p)
+        set_panel_size(p = last_plot(), file = paste0( "../results/figures/explore/alpha_compare_year_", aa, "_", bb, ".pdf"), width =  unit(3, "in"), height = unit(2.4, "in"))
+    }
+}
 
-<!-- ## Delta alpha diversity -->
-<!-- ```{r} -->
-<!-- Indices <- colnames(alpha[c(2:5)]) -->
-<!-- BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand") -->
-<!-- ``` -->
+stats_test.tbl = data.table::rbindlist(stats_test, use.names = T, fill = T)
+stats_test.tbl %>% mutate(Out = paste0(round(Diff_pct*100, 2), "%(", p.adj, ")")) %>% pivot_wider(id_cols = c(Body_Site, .y.), names_from = c(Expo, Age_grp2), values_from = Out) %>% write_clip(object_type = "table")
+```
 
-<!-- ```{r} -->
-<!-- p_list = list() -->
-<!-- for (bb in BodySites){ -->
-<!--     for (aa in Indices){ -->
-<!--         #break -->
-<!--         dat_ = Work %>% dplyr::filter(Body_Site==bb, SampleGroup=="Villagers", Age_num>=1) %>% mutate(Year = as.character(Year), Age_grp2 = factor(Age_grp2, levels = c("Age_0-3", "Age_3-8", "Age_8-18", "Adults")), Expo = as.character(Expo)) -->
-<!--         d_alpha = split(dat_, list(dat_$Year, dat_$Age_grp2, dat_$Expo)) %>% -->
-<!--             lapply(., function(x){dist(x[[aa]], method = "manhattan") %>% as.numeric}) %>% do.call("c", .) %>% data.frame(delta_alpha = .) %>% rownames_to_column(var = "Tmp") %>% separate(Tmp, c("Year", "Age_grp2", "Expo"), sep = "\\.") %>% mutate(Expo = gsub("\\d+", "", Expo), Age_grp2 = factor(Age_grp2, levels = c("Age_0-3", "Age_3-8", "Age_8-18", "Adults"))) -->
-<!--         d_alpha.test = d_alpha %>% group_by(Year, Age_grp2) %>% wilcox_test(delta_alpha ~ Expo) %>% add_xy_position(x = "Age_grp2", dodge = 0.7) %>% ungroup() %>% mutate(p.adj = p.adjust(p, method = "fdr") %>% round(digits = 3), p.adj.signif = ifelse(p.adj<=0.1, p.adj, "ns")) -->
+## Delta alpha diversity
+```{r}
+Indices <- colnames(alpha[c(2:5)])
+BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand")
+```
 
-<!--         p_list[[bb]][[aa]] <- ggplot(d_alpha, aes(x = Age_grp2, y = delta_alpha)) + -->
-<!--             geom_quasirandom(size = 1.5, aes(fill = Expo), dodge.width = 0.7, shape = 21, alpha = 0.5) + -->
-<!--             geom_boxplot(width = 0.5, aes(color = Expo), position = position_dodge(width = 0.7), fill = NA, size = 0.3, outlier.alpha = 0) + -->
-<!--             stat_pvalue_manual(d_alpha.test, label = "p.adj", tip.length = 0, size = 8/.pt) + -->
-<!--             facet_grid(.~Year) + -->
-<!--             scale_fill_manual(values = Expo_color) + -->
-<!--             scale_color_manual(values = c("black", "black")) + -->
-<!--             theme_jw(base_size = 8) + theme(aspect.ratio = 0.8) + -->
-<!--             labs(y = paste0("Absolute value \u0394(", aa, ")")) + ggtitle(bb) -->
-<!--         print(p_list[[bb]][[aa]]) -->
-<!--         set_panel_size(p = p_list[[bb]][[aa]], file = paste0("fig_tmp/delta_alpha_expo_", aa, "_", bb, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in")) -->
-<!--     } -->
-<!-- } -->
+```{r}
+p_list = list()
+for (bb in BodySites){
+    for (aa in Indices){
+        dat_ = dat_alpha %>% dplyr::filter(Body_Site==bb, SampleGroup=="Villagers", Age_num>=1) %>% mutate(Year = as.character(Year), Age_grp2 = factor(Age_grp2, levels = c("Age_0-3", "Age_3-8", "Age_8-18", "Adults")), Expo = as.character(Expo))
+        d_alpha = split(dat_, list(dat_$Year, dat_$Age_grp2, dat_$Expo)) %>%
+            lapply(., function(x){dist(x[[aa]], method = "manhattan") %>% as.numeric}) %>% do.call("c", .) %>% data.frame(delta_alpha = .) %>% rownames_to_column(var = "Tmp") %>% separate(Tmp, c("Year", "Age_grp2", "Expo"), sep = "\\.") %>% mutate(Expo = gsub("\\d+", "", Expo), Age_grp2 = factor(Age_grp2, levels = c("Age_0-3", "Age_3-8", "Age_8-18", "Adults")))
+        d_alpha.test = d_alpha %>% group_by(Year, Age_grp2) %>% wilcox_test(delta_alpha ~ Expo) %>% add_xy_position(x = "Age_grp2", dodge = 0.7) %>% ungroup() %>% mutate(p.adj = p.adjust(p, method = "fdr") %>% round(digits = 3), p.adj.signif = ifelse(p.adj<=0.1, p.adj, "ns"))
 
-<!-- p_list[["Feces"]][["faith_pd"]]+p_list[["Feces"]][["pielou_e"]] + plot_layout(guides = "collect", ncol = 1) -->
+        p_list[[bb]][[aa]] <- ggplot(d_alpha, aes(x = Age_grp2, y = delta_alpha)) +
+            geom_quasirandom(size = 1.5, aes(fill = Expo), dodge.width = 0.7, shape = 21, alpha = 0.5) +
+            geom_boxplot(width = 0.5, aes(color = Expo), position = position_dodge(width = 0.7), fill = NA, size = 0.3, outlier.alpha = 0) +
+            stat_pvalue_manual(d_alpha.test, label = "p.adj", tip.length = 0, size = 8/.pt) +
+            facet_grid(.~Year) +
+            scale_fill_manual(values = Expo_color) +
+            scale_color_manual(values = c("black", "black")) +
+            theme_jw(base_size = 8) + theme(aspect.ratio = 0.8) +
+            labs(y = paste0("Absolute value \u0394(", aa, ")")) + ggtitle(bb)
+        print(p_list[[bb]][[aa]])
+        set_panel_size(p = p_list[[bb]][[aa]], file = paste0("../results/figures/explore/delta_alpha_expo_", aa, "_", bb, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"))
+    }
+}
 
-<!-- for (bb in BodySites){ -->
-<!--     for (aa in Indices){ -->
-<!--         #break -->
-<!--         dat_ = Work %>% dplyr::filter(Body_Site==bb, SampleGroup=="Villagers", Age_num>=1) %>% mutate(Year = as.character(Year), Age_grp2 = factor(Age_grp2, levels = c("Age_0-3", "Age_3-8", "Age_8-18", "Adults")), Expo = as.character(Expo)) -->
-<!--         d_alpha = split(dat_, list(dat_$Year, dat_$Age_grp2, dat_$Expo)) %>% -->
-<!--             lapply(., function(x){dist(x[[aa]], method = "manhattan") %>% as.numeric}) %>% do.call("c", .) %>% data.frame(delta_alpha = .) %>% rownames_to_column(var = "Tmp") %>% separate(Tmp, c("Year", "Age_grp2", "Expo"), sep = "\\.") %>% mutate(Expo = gsub("\\d+", "", Expo), Age_grp2 = factor(Age_grp2, levels = c("Age_0-3", "Age_3-8", "Age_8-18", "Adults"))) -->
-<!--         d_alpha.test = d_alpha %>% group_by(Expo, Age_grp2) %>% wilcox_test(delta_alpha ~ Year) %>% add_xy_position(x = "Age_grp2", dodge = 0.7) %>% ungroup() %>% mutate(p.adj = p.adjust(p, method = "fdr") %>% round(digits = 3), p.adj.signif = ifelse(p.adj<=0.1, p.adj, "ns")) -->
+p_list[["Feces"]][["faith_pd"]]+p_list[["Feces"]][["pielou_e"]] + plot_layout(guides = "collect", ncol = 1)
 
-<!--         ggplot(d_alpha, aes(x = Age_grp2, y = delta_alpha)) + -->
-<!--             geom_quasirandom(size = 1.5, aes(fill = Year), dodge.width = 0.7, shape = 21, alpha = 0.5) + -->
-<!--             geom_boxplot(width = 0.5, aes(color = Year), position = position_dodge(width = 0.7), fill = NA, size = 0.3, outlier.alpha = 0) + -->
-<!--             stat_pvalue_manual(d_alpha.test, label = "p.adj", tip.length = 0, size = 8/.pt) + -->
-<!--             facet_grid(.~Expo) + -->
-<!--             scale_fill_manual(values = c("#80b1d3", "#fb8072")) + -->
-<!--             scale_color_manual(values = c("black", "black")) + -->
-<!--             theme_jw(base_size = 8) + theme(aspect.ratio = 0.8) + -->
-<!--             labs(y = paste0("Absolute value \u0394(", aa, ")")) + ggtitle(bb) -->
-<!--         set_panel_size(file = paste0("fig_tmp/delta_alpha_year_", aa, "_", bb, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in")) -->
-<!--     } -->
-<!-- } -->
-<!-- ``` -->
+for (bb in BodySites){
+    for (aa in Indices){
+        #break
+        dat_ = dat_alpha %>% dplyr::filter(Body_Site==bb, SampleGroup=="Villagers", Age_num>=1) %>% mutate(Year = as.character(Year), Age_grp2 = factor(Age_grp2, levels = c("Age_0-3", "Age_3-8", "Age_8-18", "Adults")), Expo = as.character(Expo))
+        d_alpha = split(dat_, list(dat_$Year, dat_$Age_grp2, dat_$Expo)) %>%
+            lapply(., function(x){dist(x[[aa]], method = "manhattan") %>% as.numeric}) %>% do.call("c", .) %>% data.frame(delta_alpha = .) %>% rownames_to_column(var = "Tmp") %>% separate(Tmp, c("Year", "Age_grp2", "Expo"), sep = "\\.") %>% mutate(Expo = gsub("\\d+", "", Expo), Age_grp2 = factor(Age_grp2, levels = c("Age_0-3", "Age_3-8", "Age_8-18", "Adults")))
+        d_alpha.test = d_alpha %>% group_by(Expo, Age_grp2) %>% wilcox_test(delta_alpha ~ Year) %>% add_xy_position(x = "Age_grp2", dodge = 0.7) %>% ungroup() %>% mutate(p.adj = p.adjust(p, method = "fdr") %>% round(digits = 3), p.adj.signif = ifelse(p.adj<=0.1, p.adj, "ns"))
+
+        ggplot(d_alpha, aes(x = Age_grp2, y = delta_alpha)) +
+            geom_quasirandom(size = 1.5, aes(fill = Year), dodge.width = 0.7, shape = 21, alpha = 0.5) +
+            geom_boxplot(width = 0.5, aes(color = Year), position = position_dodge(width = 0.7), fill = NA, size = 0.3, outlier.alpha = 0) +
+            stat_pvalue_manual(d_alpha.test, label = "p.adj", tip.length = 0, size = 8/.pt) +
+            facet_grid(.~Expo) +
+            scale_fill_manual(values = c("#80b1d3", "#fb8072")) +
+            scale_color_manual(values = c("black", "black")) +
+            theme_jw(base_size = 8) + theme(aspect.ratio = 0.8) +
+            labs(y = paste0("Absolute value \u0394(", aa, ")")) + ggtitle(bb)
+        set_panel_size(file = paste0("../results/figures/explore/delta_alpha_year_", aa, "_", bb, ".pdf"), width = unit(3, "in"), height = unit(2.4, "in"))
+    }
+}
+
+d_alpha_stats_test <- list()
+for (bb in BodySites){
+    for (aa in Indices){
+        dat_ = dat_alpha %>% dplyr::filter(Body_Site==bb, SampleGroup=="Villagers", Age_num>=1) %>% mutate(Year = as.character(Year), Age_grp2 = factor(Age_grp2, levels = c("Age_0-3", "Age_3-8", "Age_8-18", "Adults")), Expo = as.character(Expo))
+        d_alpha = split(dat_, list(dat_$Year, dat_$Age_grp2, dat_$Expo)) %>%
+            lapply(., function(x){dist(x[[aa]], method = "manhattan") %>% as.numeric}) %>% do.call("c", .) %>% data.frame(delta_alpha = .) %>% rownames_to_column(var = "Tmp") %>% separate(Tmp, c("Year", "Age_grp2", "Expo"), sep = "\\.") %>% mutate(Expo = NULL, Age_grp2 = factor(Age_grp2, levels = c("Age_0-3", "Age_3-8", "Age_8-18", "Adults")))
+        
+        d_alpha.mean = d_alpha %>% group_by(Year, Age_grp2) %>% summarise(Mean = mean(delta_alpha)) %>% ungroup %>% split(., list(.$Year, .$Age_grp2)) %>% lapply(., function(x){pull(x, Mean)})
+        d_alpha.test = d_alpha %>% group_by(Year) %>% wilcox_test(delta_alpha ~ Age_grp2) %>% add_xy_position(x = "Age_grp2") %>% ungroup() %>% mutate(p.adj = p.adjust(p, method = "fdr") %>% round(digits = 3), p.adj.signif = ifelse(p.adj<=0.1, p.adj, "ns"), Body_Site = bb, .y. = aa) %>% ungroup() %>% rowwise() %>% mutate(Diff = d_alpha.mean[[paste(Year, group2, sep = ".")]] - d_alpha.mean[[paste(Year, group1, sep = ".")]])
+        
+        d_alpha_stats_test[[paste(bb, aa, sep = "-")]] <- d_alpha.test
+        next
+        
+        p_list[[bb]][[aa]] <- ggplot(d_alpha, aes(x = Age_grp2, y = delta_alpha)) +
+            geom_quasirandom(size = 0.5, alpha = 0.2) +
+            geom_boxplot(width = 0.5, fill = NA, size = 0.3, outlier.alpha = 0) +
+            stat_pvalue_manual(d_alpha.test, label = "p.adj", tip.length = 0, size = 8/.pt) +
+            facet_grid(.~Year) +
+            scale_color_manual(values = c("black", "black")) +
+            theme_jw(base_size = 8) + theme(aspect.ratio = 0.8) +
+            labs(y = paste0("Absolute value \u0394(", aa, ")")) + ggtitle(bb)
+        print(p_list[[bb]][[aa]])
+    }
+}
+
+d_alpha_stats_test.tbl = data.table::rbindlist(d_alpha_stats_test, use.names = T, fill = T)
+
+```
 
 
