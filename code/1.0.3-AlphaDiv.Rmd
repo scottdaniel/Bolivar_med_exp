@@ -5,7 +5,7 @@ output: html_document
 editor_options:
   chunk_output_type: console
 ---
-
+## Setup analysis environment
 ```{r setup, message=FALSE, warning=FALSE}
 library(knitr)
 options(max.print="75")
@@ -29,9 +29,9 @@ library(ggbeeswarm)
 source("assets/utils.R")
 
 ```
-## Initial setup
-**Setup color index**
+## Setup datasets and miscs
 ```{r}
+#------- Setup color index ---------#
 # Exposure level
 Expo_color <- c("#1b9e77", "#d95f02", "#8da0cb")
 names(Expo_color) <- c("Low", "Medium", "High")
@@ -44,24 +44,18 @@ print(Ethnicity_color)
 
 Sanemas <- c("Chajuranha", "Mosenahanha", "Kuyuwininha", "Shianana-Jiyakwanha", "Washudihanha", "Sudukuma")
 Yekwana <- c("Kanarakuni", "Fiyakwanha")
-```
 
-**Import the data**
-```{r}
-# Alpha diversities
+#------- Import data ---------## 
 alpha = readRDS("../data/alpha_imported_all.RDS")
-```
-```{r class.source='fold-show'}
-# Mapping
+
+#------- Import mapping file---------## 
 ## This mapping files include all villagers and baseline of visitors of all body sites
 mt_ms = readRDS("../data/Mapping_MS_Expo.Rds")
 Mapping_work <- mt_ms %>% mutate(Expo = ifelse(Ethnicity=="SANEMA", "Low", ifelse(Village=="Fiyakwanha", "Low", ifelse(SampleGroup=="Visitors", "High", "Medium"))) %>% factor(levels = c("Low", "Medium", "High")), Age_num = as.numeric(Age), Age_num = ifelse(is.na(Age_num), as.numeric(gsub(pattern = "_months", replacement = "", Age, ignore.case = T))/12, Age_num), Age_grp1 = ifelse(Age_num>=18, "Adults", "Children"))
 Mapping_work$Age_num[Mapping_work$Age=="4_Days"] <- 0
 Mapping_work$Age_num[Mapping_work$Age=="1_day"] <- 0
-```
 
-**Set up the Analysis**
-```{r}
+#------- Create working overall dataset  ---------## 
 dat_alpha <- merge(alpha, Mapping_work, by = 1) %>% mutate(Age_grp2 = case_when(Age_num<=3 ~ "Age_0-3", Age_num<=8 ~ "Age_3-8", Age_num<18 ~ "Age_8-18", T ~ "Adults"))
 ```
 
@@ -169,7 +163,7 @@ for (bb in BodySites){
 #### Exploratory Statisticals
 ##### Children
 Building full multiple linear regression models with interaction terms for children
-```{r}
+```{r, eval=FALSE}
 alpha_youngchild_lm_models = list()
 lm.stats.tbl = list()
 for (bb in BodySites){
@@ -214,7 +208,7 @@ No strong interactions obsereved among children
 
 ##### all ages
 Building full multiple linear regression models with interaction terms
-```{r}
+```{r, eval=FALSE}
 alpha_full_lm_models = list()
 lm.stats.tbl = list()
 for (bb in BodySites){
@@ -415,7 +409,7 @@ for (yy in Yrs){
 ```
 
 ## Effects of year
-
+### Analysis specific parameters loading
 ```{r}
 Indices <- colnames(alpha[c(2:5)])
 BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand")
@@ -451,8 +445,8 @@ stats_test.tbl %>% mutate(Out = paste0(round(Diff_pct*100, 2), "%(", p.adj, ")")
 ```
 
 ### Modeling with Year as a factor
-Building full multiple linear regression models with interaction terms
-```{r}
+#### Building full multiple linear regression models with interaction terms
+```{r, eval=FALSE}
 alpha_full_lm_models = list()
 lm.stats.tbl = list()
 for (bb in BodySites){
@@ -491,8 +485,6 @@ ggplot(lm.stats.tbl.2, aes(x = Factors, y = Eta2_partial, color = Body_Site)) +
     theme_jw() + theme(aspect.ratio = 0.6, axis.text.x = element_text(angle = 90, hjust = 1)) +
     guides(color = "none") +
     ggtitle("Effect size (eta-partial) for full models of alpha diversity in all age")
-
-
 ```
 
 #### Final Models (No interaction terms)
@@ -550,7 +542,7 @@ for (bb in BodySites){
     }
 }
 
-colnames(model_tbls) = c("Body_Site", "Indice", "Year", "Model", "Model.type")
+colnames(model_tbls) = c("Body_Site", "Indice", "Expo", "Model", "Model.type")
 model_tbls$Model <- gsub(" + psi1.Age_num", "", model_tbls$Model, fixed = T) %>% paste0(model_tbls$Indice, " ~ ", .)
 
 fit_stats_final <- list()
@@ -578,7 +570,7 @@ for (bb in BodySites){
     }
 }
 fit_stats_final.tbl = data.table::rbindlist(fit_stats_final, use.names = T, fill = T) %>% arrange(Body_Site, Indice, Expo, Factor) %>% mutate(Omega2_partial = ifelse(is.na(Omega2), Omega2_partial, Omega2), Omega2 = NULL)
-write.table(fit_stats_final.tbl, file = "../results/tables/alpha_fit_stats_final_yea.txt", sep = "\t", row.names = F, quote = F)
+write.table(fit_stats_final.tbl, file = "../results/tables/alpha_fit_stats_final_year.txt", sep = "\t", row.names = F, quote = F)
 
 cols_to_extract = c("Coefficient", "p_value", "Omega2_out")
 spec <- tibble(
@@ -596,6 +588,58 @@ fit_stats_final.tbl %>% filter(!is.na(Omega2_partial)) %>% complete(Body_Site, E
         Omega2_out = paste0(Omega2_partial, "(", CI_low, ", ", CI_high, ")"),
         Factor = factor(Factor, levels = c("YearC", "Age_num", "U1.Age_num", "GenderC"))
         ) %>% pivot_wider_spec(id_cols = c(Factor, Body_Site, Expo), spec) %>% arrange(Body_Site, Expo, Factor) %>% write_clip(object_type = "table")
+```
+
+#### Graphs
+```{r}
+
+dat_new = complete(cbind(Age_num = seq(1, 60, 1), 
+                         Year = c(2015, 2016), 
+                         Gender = c("F", "M")) %>% 
+                       as.data.frame(), Age_num, Year, Gender) %>% 
+    mutate(Age_num = as.numeric(Age_num), YearC = ifelse(Year==2015, -0.5, 0.5), GenderC = ifelse(Gender=="M", -0.5, 0.5))
+
+dat_pred = list()
+for (bb in BodySites){
+    for (aa in Indices){
+        for(ee in Expos){
+            dat_pred[[bb]][[aa]][[ee]] = cbind(dat_new, predict(models[[bb]][[aa]][[ee]], newdata = dat_new, interval = "confidence"))
+            
+        }
+    }
+}
+for (ee in Expos){
+    for (aa in Indices){
+        #aa = "faith_pd"
+        p_list = list()
+        for (bb in BodySites){
+            #bb = "Feces"
+            dat_ = dat_alpha %>% dplyr::filter(Body_Site==bb, Expo==ee, SampleGroup=="Villagers", Age_num>=1) 
+            dat_pred_ = dat_pred[[bb]][[aa]][[ee]]
+            mod = model_tbls %>% dplyr::filter(Body_Site==bb, Expo==ee, Indice==aa) %>% pull(Model)
+            p.yr = (models[[bb]][[aa]][[ee]] %>% car::Anova(type = "3") %>% as.data.frame())["YearC", "Pr(>F)"]
+            p.yr = ifelse(p.yr<0.001, "P.Year<0.001", paste0("P.Year=", round(p.expo, 3)))
+            p = ggplot(dat_, aes_string(x = "Age_num", y = aa, color = "Year", shape = "Gender")) +
+                geom_point(size = 1.5, alpha = 0.6) +
+                geom_line(data = dat_pred_, aes(y = fit, linetype = Gender), size = 1) +
+                geom_ribbon(data = dat_pred_, aes(y = fit, ymin = lwr, ymax = upr, fill = Year, alpha = Gender), color = NA, show.legend = F) +
+                annotate("label", x = Inf, y = Inf, label = paste(stringi::stri_wrap(c(mod, p.yr),width = 50), collapse = "\n"), hjust = 1, vjust = 1, size = 9/.pt) +
+                scale_color_manual(values = c("#80b1d3", "#fb8072"), limits = force) +
+                scale_fill_manual(values = c("#80b1d3", "#fb8072"), limits = force) +
+                scale_shape_manual(values = c(16, 1)) +
+                scale_linetype_manual(values = c(1, 2)) +
+                scale_alpha_manual(values = c(0.4, 0.2)) +
+                theme_jw(base_size = 14) + theme(aspect.ratio = 0.7, panel.background = element_rect(color = "black"), plot.title = element_text(hjust = 0, vjust = 1), plot.title.position = "panel", legend.key.width = unit(1,"cm"), legend.margin = margin(rep(-3, 4))) +
+                labs(color = "Samples points", linetype = "Regression lines", shape = "", x = "Age (Years)") +
+                guides(color = guide_legend(override.aes = list(alpha = 1, size = 1.5, linetype = c(NA, NA)), order = 1), shape = guide_legend(override.aes = list(size = 1.5, alpha = 1), order = 2), linetype = guide_legend(order = 3)) +
+                ggtitle(bb)
+            p_list[[bb]] = p
+        }
+        p_f = p_list[["Feces"]] + p_list[["Mouth"]] + guide_area() + p_list[["Nose"]] + p_list[["Right_Arm"]] + p_list[["Right_Hand"]] + plot_layout(guides = "collect", nrow = 2) + plot_annotation(title = yy, tag_levels = 'A') & theme(plot.tag = element_text(size = 10, face = "bold"))
+        print(p_f)
+        #set_panel_size(p = p_f, g = patchworkGrob(p_f), file = paste0( "../output/figures/alpha_regression_", aa, "_", yy, ".pdf"), width =  unit(3, "in"), height = unit(2.1, "in"))
+    }
+}
 ```
 ## Delta alpha diversity
 ```{r}
