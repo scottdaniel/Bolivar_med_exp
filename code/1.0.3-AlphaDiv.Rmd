@@ -5,7 +5,7 @@ output: html_document
 editor_options:
   chunk_output_type: console
 ---
-## Setup analysis environment
+## Environment Setup
 ```{r setup, message=FALSE, warning=FALSE}
 library(knitr)
 options(max.print="75")
@@ -614,11 +614,11 @@ for (ee in Expos){
         p_list = list()
         for (bb in BodySites){
             #bb = "Feces"
-            dat_ = dat_alpha %>% dplyr::filter(Body_Site==bb, Expo==ee, SampleGroup=="Villagers", Age_num>=1) 
+            dat_ = dat_alpha %>% dplyr::filter(Body_Site==bb, Expo==ee, SampleGroup=="Villagers", Age_num>=1)  %>% mutate(Year = factor(Year))
             dat_pred_ = dat_pred[[bb]][[aa]][[ee]]
             mod = model_tbls %>% dplyr::filter(Body_Site==bb, Expo==ee, Indice==aa) %>% pull(Model)
             p.yr = (models[[bb]][[aa]][[ee]] %>% car::Anova(type = "3") %>% as.data.frame())["YearC", "Pr(>F)"]
-            p.yr = ifelse(p.yr<0.001, "P.Year<0.001", paste0("P.Year=", round(p.expo, 3)))
+            p.yr = ifelse(p.yr<0.001, "P.Year<0.001", paste0("P.Year=", round(p.yr, 3)))
             p = ggplot(dat_, aes_string(x = "Age_num", y = aa, color = "Year", shape = "Gender")) +
                 geom_point(size = 1.5, alpha = 0.6) +
                 geom_line(data = dat_pred_, aes(y = fit, linetype = Gender), size = 1) +
@@ -635,9 +635,9 @@ for (ee in Expos){
                 ggtitle(bb)
             p_list[[bb]] = p
         }
-        p_f = p_list[["Feces"]] + p_list[["Mouth"]] + guide_area() + p_list[["Nose"]] + p_list[["Right_Arm"]] + p_list[["Right_Hand"]] + plot_layout(guides = "collect", nrow = 2) + plot_annotation(title = yy, tag_levels = 'A') & theme(plot.tag = element_text(size = 10, face = "bold"))
+        p_f = p_list[["Feces"]] + p_list[["Mouth"]] + guide_area() + p_list[["Nose"]] + p_list[["Right_Arm"]] + p_list[["Right_Hand"]] + plot_layout(guides = "collect", nrow = 2) + plot_annotation(title = ee, tag_levels = 'A') & theme(plot.tag = element_text(size = 10, face = "bold"))
         print(p_f)
-        #set_panel_size(p = p_f, g = patchworkGrob(p_f), file = paste0( "../output/figures/alpha_regression_", aa, "_", yy, ".pdf"), width =  unit(3, "in"), height = unit(2.1, "in"))
+        set_panel_size(p = p_f, g = patchworkGrob(p_f), file = paste0( "../results/figures/explore/alpha_regression_", aa, "_", ee, ".pdf"), width =  unit(3, "in"), height = unit(2.1, "in"))
     }
 }
 ```
