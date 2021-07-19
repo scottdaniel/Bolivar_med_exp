@@ -183,3 +183,20 @@ reorder_row_values <- function(vec1, vec2, levels = NULL){
     return(new)
 
 }
+
+calcOmega2_dm <- function(x) {
+    # Computes the effect size omega^2 parital using the output from adonis test
+    #
+    # Args:
+    #   x: adonis output
+    #
+    # Returns:
+    #   A dataframe with calculated effect size omega^2 partial added to original dataframe
+    
+    require(dplyr)
+    N_t = x["Total", ]$Df + 1
+    MSe = x["Residual", ]$SumOfSqs/x["Residual", ]$Df
+    out = x %>% as.data.frame %>% rownames_to_column(var = "Variable") %>% mutate(Omega2_partial = ifelse(is.na(`F`), NA, (SumOfSqs - Df * MSe)/(SumOfSqs + (N_t - Df) * MSe)))
+    return(out)
+    
+}
