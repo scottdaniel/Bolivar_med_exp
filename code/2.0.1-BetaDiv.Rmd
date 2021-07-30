@@ -70,7 +70,7 @@ DM_uu <- readRDS("../data/DM_uu_all_20180530.Rds")
 ## Weighted unifrac
 DM_wu <- readRDS("../data/DM_wu_all_20180530.Rds")
 ## bray curtis
-DM_bs <- readRDS("../data/DM_bc_all_20200604.Rds")
+DM_bc <- readRDS("../data/DM_bc_all_20200604.Rds")
 ## deicode
 DM_dc <- readRDS("../data/DM_deicode_all_20200604.Rds")
 Ord_dc <- readRDS("../data/Ord_deicode_all_20200706.Rds")
@@ -99,58 +99,57 @@ for (YY in Yrs){
   for (BB in BodySites){
     # BB = "Feces"
     for (DD in Indices){
-      #DD = "uu"
-      Mf <- Mapping_work %>% filter(Year==YY, Body_Site==BB, SampleGroup=="Villagers")
-      # distance matrix for YY, BB, and DD
-      DM_tmp <- subset_dm_by_names(get(paste0("DM_", DD)), Mf$SampleID)
-      # list of distanc matrix corresponding to each age group
-      dms <- parallel::mclapply(c("Age_0-3", "Age_3-8", "Age_8-18", "Adults"), function(x){subset_dm_by_names(DM = DM_tmp, Sname = Mf %>% filter(Age_grp2==x) %>% pull(SampleID))}, mc.cores = nc)
-      names(dms) <- c("Age_0-3", "Age_3-8", "Age_8-18", "Adults")
-      print(paste(YY, BB, DD))
-      
-      # Adonis test
-      stats <- parallel::mclapply(dms, function(x){adonis2(x ~ Expo + Gender, by = "margin", data = Mf %>% filter(SampleID %in% attr(x, "Labels")))})
-      print(stats)
-      # beta dispersion
-      stats_disp <- lapply(dms, function(x){betadisper(x, Mf[match(attr(x, "Labels"), Mf$SampleID), ]$Expo)})
-      stats_disp_perm <- lapply(stats_disp, function(x){permutest(x)$tab$`Pr(>F)`[1]}) %>% do.call("rbind", .) %>% as.data.frame %>% rownames_to_column(var = "Age_grp2") %>% rename(p.disp = V1) %>% mutate(Variable = "Expo")
-      
-      stats_tbl <- lapply(stats, calcOmega2_dm) %>% data.table::rbindlist(., use.names = T, idcol = "Age_grp2") %>% mutate(Body_Site = BB, Year = YY, Index = DD) %>% merge(., stats_disp_perm, by = c("Age_grp2", "Variable"), all.x = T)
-      
-      stats_tbl2 <- stats_tbl %>% mutate(Omega2_partial =round(Omega2_partial, 3), stat_label = paste0(Variable, ": p = ", `Pr(>F)`, "; Omega2 = ", Omega2_partial), stat_label = ifelse(Variable=="Expo", paste0(stat_label, "; p.disp = ", p.disp), stat_label)) %>% group_by(Age_grp2) %>% summarise(stat_label = paste(stat_label[2], stat_label[1], sep = "\n")) 
-      
-      beta_stats[[paste0(YY, BB, DD)]] <- stats_tbl
-      
-      pcoa_tmp <- parallel::mclapply(dms, pcoa, mc.cores = nc)
-      p_lst <- list()
-      for (i in seq(length(pcoa_tmp))){
-        varPC1 <- round(pcoa_tmp[[i]]$values$Relative_eig[1]*100, 2)
-        varPC2 <- round(pcoa_tmp[[i]]$values$Relative_eig[2]*100, 2)
-        varPC3 <- round(pcoa_tmp[[i]]$values$Relative_eig[3]*100, 2)
-        plot_dt <- pcoa_tmp[[i]]$vectors[,1:3] %>% merge(., Mf, by.x = 0, by.y = 1, all.x = T)
-        p_lst[[i]] <- ggplot(plot_dt, aes(x = Axis.1, y = Axis.2, color = Expo)) +
-          geom_point(size = 1, aes(shape = Gender)) +
-          stat_ellipse() +
-          geom_label(data = stats_tbl2[i, ], x = -Inf, y = Inf, aes(label = stat_label), hjust = 0, vjust = 1, inherit.aes = F, size = 8/.pt) +
-          facet_grid(.~Age_grp2) +
-          theme_jw(base_size = 14) + theme(aspect.ratio = 1, panel.background = element_rect(colour = "black"), panel.grid.major = element_line(colour="grey90",linetype="dashed", size=0.2), legend.direction = "vertical", strip.text = element_text(face="bold", color = "white", size = rel(1))) +
-          labs(x = paste0("PC1: ", varPC1, "% explained variation"), y = paste0("PC2: ", varPC2, "% explained variation")) +
-          scale_color_manual(breaks = names(Expo_color), values = Expo_color) +
-          scale_shape_manual(values = c(16, 21))
-      }
-      p <- p_lst[[1]] + p_lst[[2]] + p_lst[[3]] + p_lst[[4]] + plot_layout(nrow = 1, guides = "collect") + plot_annotation(title = paste0("PCoA, ",YY, DD, BB), subtitle = "Rarefied at 10,000 reads per sample")
-      print(p)
-      set_panel_size(p = p, g = patchworkGrob(p), file = paste0("output/figures/pcoa_pc1v2_", DD, "_", BB, "_", YY, ".pdf"), width = unit(3, "in"), height = unit(3, "in"), useDingbats = F)
+        #DD = "uu"
+        Mf <- Mapping_work %>% filter(Year==YY, Body_Site==BB, SampleGroup=="Villagers")
+        # distance matrix for YY, BB, and DD
+        DM_tmp <- subset_dm_by_names(get(paste0("DM_", DD)), Mf$SampleID)
+        # list of distanc matrix corresponding to each age group
+        dms <- parallel::mclapply(c("Age_0-3", "Age_3-8", "Age_8-18", "Adults"), function(x){subset_dm_by_names(DM = DM_tmp, Sname = Mf %>% filter(Age_grp2==x) %>% pull(SampleID))}, mc.cores = nc)
+        names(dms) <- c("Age_0-3", "Age_3-8", "Age_8-18", "Adults")
+        print(paste(YY, BB, DD))
+        
+        # Adonis test
+        stats <- parallel::mclapply(dms, function(x){adonis2(x ~ Expo + Gender, by = "margin", data = Mf %>% filter(SampleID %in% attr(x, "Labels")))})
+        print(stats)
+        # beta dispersion
+        stats_disp <- lapply(dms, function(x){betadisper(x, Mf[match(attr(x, "Labels"), Mf$SampleID), ]$Expo)})
+        stats_disp_perm <- lapply(stats_disp, function(x){permutest(x)$tab$`Pr(>F)`[1]}) %>% do.call("rbind", .) %>% as.data.frame %>% rownames_to_column(var = "Age_grp2") %>% rename(p.disp = V1) %>% mutate(Variable = "Expo")
+        
+        stats_tbl <- lapply(stats, calcOmega2_dm) %>% data.table::rbindlist(., use.names = T, idcol = "Age_grp2") %>% mutate(Body_Site = BB, Year = YY, Index = DD) %>% merge(., stats_disp_perm, by = c("Age_grp2", "Variable"), all.x = T)
+        
+        stats_tbl2 <- stats_tbl %>% mutate(Omega2_partial =round(Omega2_partial, 3), stat_label = paste0(Variable, ": p = ", `Pr(>F)`, "; Omega2 = ", Omega2_partial), stat_label = ifelse(Variable=="Expo", paste0(stat_label, "; p.disp = ", p.disp), stat_label)) %>% group_by(Age_grp2) %>% summarise(stat_label = paste(stat_label[2], stat_label[1], sep = "\n")) 
+        
+        beta_stats[[paste0(YY, BB, DD)]] <- stats_tbl
+        
+        pcoa_tmp <- parallel::mclapply(dms, function(x){cmdscale(d = x, k = 3, list. = T, eig = T)}, mc.cores = nc)
+        p_lst <- list()
+        for (f in names(pcoa_tmp)){
+            varPC1 <- round(pcoa_tmp[[f]]$eig[1]/sum(pcoa_tmp[[f]]$eig)*100, 2)
+            varPC2 <- round(pcoa_tmp[[f]]$eig[2]/sum(pcoa_tmp[[f]]$eig)*100, 2)
+            varPC3 <- round(pcoa_tmp[[f]]$eig[3]/sum(pcoa_tmp[[f]]$eig)*100, 2)
+            plot_dt <- pcoa_tmp[[f]]$points[,1:3] %>% merge(., Mf, by.x = 0, by.y = 1, all.x = T)
+            p_lst[[f]] <- ggplot(plot_dt, aes(x = V1, y = V2, color = Expo)) +
+                geom_point(size = 1, aes(shape = Gender)) +
+                stat_ellipse() +
+                geom_label(data = stats_tbl2 %>% filter(Age_grp2==f), x = -Inf, y = Inf, aes(label = stat_label), hjust = 0, vjust = 1, inherit.aes = F, size = 8/.pt) +
+                facet_grid(.~Age_grp2) +
+                theme_jw(base_size = 14) + theme(aspect.ratio = 1, panel.background = element_rect(colour = "black"), panel.grid.major = element_line(colour="grey90",linetype="dashed", size=0.2), legend.direction = "vertical", strip.text = element_text(face="bold", color = "white", size = rel(1))) +
+                labs(x = paste0("PC1: ", varPC1, "% explained variation"), y = paste0("PC2: ", varPC2, "% explained variation")) +
+                scale_color_manual(breaks = names(Expo_color), values = Expo_color) +
+                scale_shape_manual(values = c(16, 21))
+        }
+        p <- p_lst[[1]] + p_lst[[2]] + p_lst[[3]] + p_lst[[4]] + plot_layout(nrow = 1, guides = "collect") + plot_annotation(title = paste0("PCoA, ",YY, DD, BB), subtitle = "Rarefied at 10,000 reads per sample")
+        print(p)
+        set_panel_size(p = p, g = patchworkGrob(p), file = paste0("../results/figures/explore/pcoa_pc1v2_", DD, "_", BB, "_", YY, ".pdf"), width = unit(3, "in"), height = unit(3, "in"), useDingbats = F)
     }
   }
 }
 
-beta_stats_tbl <- do.call("rbind", beta_stats) %>% arrange(Index, Age_grp2, Factor, Body_Site, Year) %>% select(Index, Age_grp2, Factor, Body_Site, Year, everything()) 
+beta_stats_tbl <- do.call("rbind", beta_stats) %>% arrange(Index, Age_grp2, Variable, Body_Site, Year) %>% select(Index, Age_grp2, Variable, Body_Site, Year, everything()) %>% filter(!is.na(`F`))
+write.table(beta_stats_tbl, file = "../results/tables/beta_stats_by_age.txt", sep = "\t", row.names = F)
 
 
-clip <- pipe("pbcopy", "w")
-write.table(beta_stats_tbl %>%  pivot_wider(id_cols = c(Index, Year, Body_Site, Factor), names_from = Age_grp2, values_from = c(R2, F, `Pr(>F)`, p.disp)), file = clip, row.names = F, quote = F, sep = "\t")
-close(clip)
+write_clip(beta_stats_tbl %>%  pivot_wider(id_cols = c(Index, Year, Body_Site, Variable), names_from = Age_grp2, values_from = c(Omega2_partial, `Pr(>F)`, p.disp)) %>% arrange(Index, Year, Body_Site, Variable))
 
 ```
 
@@ -159,29 +158,65 @@ Indices = c("uu", "wu", "bc")
 Yrs <- c("2015", "2016")
 BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand")
 
-beta_stats <- list()
+
 for (YY in Yrs){
-    #YY = "2015"
-    for (BB in BodySites){
-        # BB = "Feces"
-        for (DD in Indices){
-            #DD = "uu"
-            Mf <- Mapping_work2 %>% filter(Year==YY, Body_Site==BB, SampleGroup=="Villagers")
-            # distance matrix for YY, BB, and DD
-            DM_tmp <- subset_dm_by_names(get(paste0("DM_", DD)), Mf$SampleID)
-            # Adonis test
-            stats <- adonis2(DM_tmp ~ Urban + Age_num + Gender, by = "margin", data = Mf %>% filter(SampleID %in% attr(DM_tmp, "Labels")))
-            print(stats)
-            
-            stats_tbl <- (stats %>% as.data.frame() %>% rownames_to_column(var = "Factor"))[1:3, c(1, 4:6)] %>% mutate(Body_Site = BB, Year = YY, Index = DD, R2 = round(R2, 3))
-            
-            beta_stats[[paste(YY, BB, DD, sep = "-")]] <- stats_tbl
+  #YY = "2015"
+  for (BB in BodySites){
+    # BB = "Feces"
+    for (DD in Indices){
+        #DD = "uu"
+        Mf <- Mapping_work %>% filter(Year==YY, Body_Site==BB, SampleGroup=="Villagers")
+        # distance matrix for YY, BB, and DD
+        DM_tmp <- subset_dm_by_names(get(paste0("DM_", DD)), Mf$SampleID)
+        
+        adonis2(DM_tmp ~ Age_grp2 + Expo + Gender, by = "margin", data = Mf %>% filter(SampleID %in% attr(DM_tmp, "Labels")))
+        
+        rda_fit <- dbrda(DM_tmp ~ Expo + Condition(Gender + Age_grp2), data = Mf %>% filter(SampleID %in% attr(DM_tmp, "Labels")))
+        
+        
+        # Adonis test
+        stats <- parallel::mclapply(dms, function(x){adonis2(x ~ Expo + Gender, by = "margin", data = Mf %>% filter(SampleID %in% attr(x, "Labels")))})
+        print(stats)
+        # beta dispersion
+        stats_disp <- lapply(dms, function(x){betadisper(x, Mf[match(attr(x, "Labels"), Mf$SampleID), ]$Expo)})
+        stats_disp_perm <- lapply(stats_disp, function(x){permutest(x)$tab$`Pr(>F)`[1]}) %>% do.call("rbind", .) %>% as.data.frame %>% rownames_to_column(var = "Age_grp2") %>% rename(p.disp = V1) %>% mutate(Variable = "Expo")
+        
+        stats_tbl <- lapply(stats, calcOmega2_dm) %>% data.table::rbindlist(., use.names = T, idcol = "Age_grp2") %>% mutate(Body_Site = BB, Year = YY, Index = DD) %>% merge(., stats_disp_perm, by = c("Age_grp2", "Variable"), all.x = T)
+        
+        stats_tbl2 <- stats_tbl %>% mutate(Omega2_partial =round(Omega2_partial, 3), stat_label = paste0(Variable, ": p = ", `Pr(>F)`, "; Omega2 = ", Omega2_partial), stat_label = ifelse(Variable=="Expo", paste0(stat_label, "; p.disp = ", p.disp), stat_label)) %>% group_by(Age_grp2) %>% summarise(stat_label = paste(stat_label[2], stat_label[1], sep = "\n")) 
+        
+        beta_stats[[paste0(YY, BB, DD)]] <- stats_tbl
+        
+        pcoa_tmp <- parallel::mclapply(dms, function(x){cmdscale(d = x, k = 3, list. = T, eig = T)}, mc.cores = nc)
+        p_lst <- list()
+        for (f in names(pcoa_tmp)){
+            varPC1 <- round(pcoa_tmp[[f]]$eig[1]/sum(pcoa_tmp[[f]]$eig)*100, 2)
+            varPC2 <- round(pcoa_tmp[[f]]$eig[2]/sum(pcoa_tmp[[f]]$eig)*100, 2)
+            varPC3 <- round(pcoa_tmp[[f]]$eig[3]/sum(pcoa_tmp[[f]]$eig)*100, 2)
+            plot_dt <- pcoa_tmp[[f]]$points[,1:3] %>% merge(., Mf, by.x = 0, by.y = 1, all.x = T)
+            p_lst[[f]] <- ggplot(plot_dt, aes(x = V1, y = V2, color = Expo)) +
+                geom_point(size = 1, aes(shape = Gender)) +
+                stat_ellipse() +
+                geom_label(data = stats_tbl2 %>% filter(Age_grp2==f), x = -Inf, y = Inf, aes(label = stat_label), hjust = 0, vjust = 1, inherit.aes = F, size = 8/.pt) +
+                facet_grid(.~Age_grp2) +
+                theme_jw(base_size = 14) + theme(aspect.ratio = 1, panel.background = element_rect(colour = "black"), panel.grid.major = element_line(colour="grey90",linetype="dashed", size=0.2), legend.direction = "vertical", strip.text = element_text(face="bold", color = "white", size = rel(1))) +
+                labs(x = paste0("PC1: ", varPC1, "% explained variation"), y = paste0("PC2: ", varPC2, "% explained variation")) +
+                scale_color_manual(breaks = names(Expo_color), values = Expo_color) +
+                scale_shape_manual(values = c(16, 21))
         }
+        p <- p_lst[[1]] + p_lst[[2]] + p_lst[[3]] + p_lst[[4]] + plot_layout(nrow = 1, guides = "collect") + plot_annotation(title = paste0("PCoA, ",YY, DD, BB), subtitle = "Rarefied at 10,000 reads per sample")
+        print(p)
+        set_panel_size(p = p, g = patchworkGrob(p), file = paste0("../results/figures/explore/pcoa_pc1v2_", DD, "_", BB, "_", YY, ".pdf"), width = unit(3, "in"), height = unit(3, "in"), useDingbats = F)
     }
+  }
 }
 
-beta_stats_tbl_3factor <- do.call("rbind", beta_stats)
-beta_stats_tbl_3factor %>% knitr::kable()
+beta_stats_tbl <- do.call("rbind", beta_stats) %>% arrange(Index, Age_grp2, Variable, Body_Site, Year) %>% select(Index, Age_grp2, Variable, Body_Site, Year, everything()) %>% filter(!is.na(`F`))
+write.table(beta_stats_tbl, file = "../results/tables/beta_stats_by_age.txt", sep = "\t", row.names = F)
+
+
+write_clip(beta_stats_tbl %>%  pivot_wider(id_cols = c(Index, Year, Body_Site, Variable), names_from = Age_grp2, values_from = c(Omega2_partial, `Pr(>F)`, p.disp)) %>% arrange(Index, Year, Body_Site, Variable))
+
 ```
 
 ## Figure \\label{PCoA_with_age}
