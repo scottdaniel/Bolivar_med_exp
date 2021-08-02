@@ -171,7 +171,9 @@ for (YY in Yrs){
         
         adonis2(DM_tmp ~ Age_grp2 + Expo + Gender, by = "margin", data = Mf %>% filter(SampleID %in% attr(DM_tmp, "Labels")))
         
-        rda_fit <- dbrda(DM_tmp ~ Expo + Condition(Gender + Age_grp2), data = Mf %>% filter(SampleID %in% attr(DM_tmp, "Labels")))
+        rda_fit <- dbrda(DM_tmp ~ Expo + Gender + Age_grp2, data = Mf %>% filter(SampleID %in% attr(DM_tmp, "Labels")))
+        # proportions of axes
+        eigenvals(rda_fit)/sum(eigenvals(rda_fit))*100
         
         
         # Adonis test
