@@ -168,12 +168,11 @@ for (YY in Yrs){
         Mf <- Mapping_work %>% filter(Year==YY, Body_Site==BB, SampleGroup=="Villagers")
         # distance matrix for YY, BB, and DD
         DM_tmp <- subset_dm_by_names(get(paste0("DM_", DD)), Mf$SampleID)
-        
-        adonis2(DM_tmp ~ Age_grp2 + Expo + Gender, by = "margin", data = Mf %>% filter(SampleID %in% attr(DM_tmp, "Labels")))
-        
+
         rda_fit <- dbrda(DM_tmp ~ Expo + Gender + Age_grp2, data = Mf %>% filter(SampleID %in% attr(DM_tmp, "Labels")))
+        scores(rda_fit)$sites # vectors projecting original data onto axis k
         # proportions of axes
-        eigenvals(rda_fit)/sum(eigenvals(rda_fit))*100
+        summary(rda_fit)
         
         
         # Adonis test
