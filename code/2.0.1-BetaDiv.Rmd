@@ -89,6 +89,8 @@ Mapping_work %>% filter(SampleID %in% labels(DM_uu), SampleGroup=="Villagers") %
 
 ## Figure \\label{PCoA_of_All}
 ** update on 6-26-2020: ** Given the discussion with CHOP, the PCOA should be calculated on each age group to have a better separation
+
+### Regular PCoA
 ```{r}
 Indices = c("uu", "wu", "bc")
 Yrs <- c("2015", "2016")
@@ -154,6 +156,7 @@ write_clip(beta_stats_tbl %>%  pivot_wider(id_cols = c(Index, Year, Body_Site, V
 
 ```
 
+### dbRDA with regular beta diversity index
 ```{r}
 Indices = c("uu", "wu", "bc")
 Yrs <- c("2015", "2016")
@@ -166,10 +169,12 @@ names(Sex_col) <- c("F", "M")
 beta_stats <- list()
 for (YY in Yrs){
   #YY = "2015"
-  for (BB in BodySites){
-    # BB = "Feces"
     for (DD in Indices){
         #DD = "uu"
+        p_list <- list()
+        for (BB in BodySites){
+            # BB = "Feces"
+    
         Mf <- Mapping_work %>% filter(Year==YY, Body_Site==BB, SampleGroup=="Villagers")
         # distance matrix for YY, BB, and DD
         DM_tmp <- subset_dm_by_names(get(paste0("DM_", DD)), Mf$SampleID)
@@ -189,7 +194,7 @@ for (YY in Yrs){
         rda_dat_center1 <- data.table::rbindlist(rda_dat_center1, idcol = "Factor")
         
         # Main effect plot
-        p1 <- ggplot(rda_dat_center1, aes(x = dbRDA1, y = dbRDA2)) + 
+        p_list[["Main"]][[BB]] <- ggplot(rda_dat_center1, aes(x = dbRDA1, y = dbRDA2)) + 
             geom_point(aes(fill = Lvls, shape = Factor), size = 5) +
             geom_text_repel(aes(label = Lvls), size = 8/.pt, point.padding = 5) +
             geom_hline(yintercept = 0, linetype = "dashed", size = 0.2) +
@@ -198,14 +203,14 @@ for (YY in Yrs){
             scale_fill_manual(values = c(Expo_color, Age_col, Sex_col)) +
             scale_shape_manual(values = c(24, 21, 22)) +
             guides(fill = "none") +
-            labs(x = paste0("dbRDA1 (", var_dbrda1, "%)"), y = paste0("dbRDA2 (", var_dbrda2, "%)"), title = paste("Main Effect Plot", BB, DD, YY))
-        print(p1)
-        set_panel_size(p1, file = paste("../results/figures/explore/dbrda", DD, BB, YY, "main.pdf", sep = "_"), width = unit(3.5, "in"), height = unit(3.5, "in"))
+            labs(x = paste0("dbRDA1 (", var_dbrda1, "%)"), y = paste0("dbRDA2 (", var_dbrda2, "%)"), title = paste(BB, DD, YY))
+        print(p_list[["Main"]][[BB]])
+        #set_panel_size(p_list[["Main"]][[BB]], file = paste("../results/figures/explore/dbrda", DD, BB, YY, "main.pdf", sep = "_"), width = unit(3.5, "in"), height = unit(3.5, "in"))
         
         rda_dat_center2 <- rda_dat %>% group_by(Expo, Age_grp2) %>% summarise(across(starts_with("dbRDA"), mean))
         rda_dat_2 <- merge(rda_dat, rda_dat_center2, by = c("Expo", "Age_grp2"), suffixes = c("", ".c"))
         # Interaction plot
-        p2 <- ggplot(rda_dat_2, aes(x = dbRDA1, y = dbRDA2)) + 
+        p_list[["Inter"]][[BB]] <- ggplot(rda_dat_2, aes(x = dbRDA1, y = dbRDA2)) + 
             geom_segment(aes(x = dbRDA1.c, y = dbRDA2.c, xend = dbRDA1, yend = dbRDA2, color = Expo), size = 0.3) +
             geom_point(aes(fill = Expo), size = 1, shape = 21, alpha = 0.5) +
             geom_point(data = rda_dat_center2, size = 5, aes(fill = Expo), shape = 21) +
@@ -216,9 +221,9 @@ for (YY in Yrs){
             scale_fill_manual(values = Expo_color, limits = force) +
             scale_color_manual(values = Expo_color) +
             guides(color = "none") +
-            labs(x = paste0("dbRDA1 (", var_dbrda1, "%)"), y = paste0("dbRDA2 (", var_dbrda2, "%)"), title = paste("Interaction Plot", BB, DD, YY))
-        print(p2)
-        set_panel_size(p2, file = paste("../results/figures/explore/dbrda", DD, BB, YY, "ExpoAge.pdf", sep = "_"), width = unit(3.5, "in"), height = unit(3.5, "in"))
+            labs(x = paste0("dbRDA1 (", var_dbrda1, "%)"), y = paste0("dbRDA2 (", var_dbrda2, "%)"), title = paste(BB, DD, YY))
+        print(p_list[["Inter"]][[BB]])
+        #set_panel_size(p_list[["Inter"]][[BB]], file = paste("../results/figures/explore/dbrda", DD, BB, YY, "ExpoAge.pdf", sep = "_"), width = unit(3.5, "in"), height = unit(3.5, "in"))
 
         # Adonis test
         stats <- adonis2(DM_tmp ~ Expo + Gender + Age_grp2, by = "margin", data = Mf)
@@ -226,149 +231,57 @@ for (YY in Yrs){
         stats_tbl2 <- stats_tbl %>% mutate(Omega2_partial =round(Omega2_partial, 3), stat_label = paste0(Variable, ": p = ", `Pr(>F)`, "; Omega2 = ", Omega2_partial))
         
         beta_stats[[paste0(YY, BB, DD)]] <- stats_tbl
+        }
+        p1 <- p_list[["Main"]][["Feces"]] + p_list[["Main"]][["Mouth"]] + guide_area() + p_list[["Main"]][["Nose"]] + p_list[["Main"]][["Right_Arm"]] + p_list[["Main"]][["Right_Hand"]] + plot_layout(guides = "collect", nrow = 2) + plot_annotation(title = paste(YY, DD), tag_levels = 'A') & theme(plot.tag = element_text(size = 10, face = "bold"))
+        set_panel_size(g = patchworkGrob(p1), file = paste("../results/figures/explore/dbrda_combine", DD,  YY, "Main.pdf", sep = "_"), width = unit(3.5, "in"), height = unit(3.5, "in"))
+        
+        p2 = p_list[["Inter"]][["Feces"]] + p_list[["Inter"]][["Mouth"]] + guide_area() + p_list[["Inter"]][["Nose"]] + p_list[["Inter"]][["Right_Arm"]] + p_list[["Inter"]][["Right_Hand"]] + plot_layout(guides = "collect", nrow = 2) + plot_annotation(title = paste(YY, DD), tag_levels = 'A') & theme(plot.tag = element_text(size = 10, face = "bold"))
+        set_panel_size(g = patchworkGrob(p2), file = paste("../results/figures/explore/dbrda_combine", DD,  YY, "Inter.pdf", sep = "_"), width = unit(3.5, "in"), height = unit(3.5, "in"))
     }
-  }
 }
 
-beta_stats_tbl <- data.table::rbindlist(beta_stats) %>% arrange(Index, Variable, Body_Site, Year) %>% select(Index, Variable, Body_Site, Year, everything()) %>% filter(!is.na(`F`))
+beta_stats_tbl <- data.table::rbindlist(beta_stats) %>% arrange(Index, Variable, Body_Site, Year) %>% select(Index, Variable, Body_Site, Year, everything()) %>% filter(!is.na(`F`)) %>% ungroup() %>% mutate(p.adj = p.adjust(`Pr(>F)`, method = "fdr"))
 
 write.table(beta_stats_tbl, file = "../results/tables/beta_stats_age_included.txt", sep = "\t", row.names = F)
 
-
-# write_clip(beta_stats_tbl %>%  pivot_wider(id_cols = c(Index, Year, Body_Site, Variable), names_from = Age_grp2, values_from = c(Omega2_partial, `Pr(>F)`, p.disp)) %>% arrange(Index, Year, Body_Site, Variable))
-
 ```
-
-## Figure \\label{PCoA_with_age}
-** update on 07-02-2020: ** Given the discussion with Gloria, maybe a graph show of position of PC1 would be helpful
-
 ### Deicode
-```{r}
+```{r, eval=F}
+
 Yrs <- c("2015", "2016")
 BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand")
+Age_col <- c("#f1eef6", "#bdc9e1", "#74a9cf", "#0570b0")
+names(Age_col) <- c("Age_0-3", "Age_3-8", "Age_8-18", "Adults")
+Sex_col <- c("#fbb4ae", "#b3cde3")
+names(Sex_col) <- c("F", "M")
 
 for (YY in Yrs){
-    #YY = "2015"
-    p_lst <- list()
-    p_lst2 <- list()
     for (BB in BodySites){
-        # BB = "Feces"
-        dat_name = paste(BB, YY, sep = "_")
-        dat_ord = ord_qzas[[dat_name]]$data
+        Mf <- Mapping_work %>% filter(Year==YY, Body_Site==BB, SampleGroup=="Villagers")
+        Ord <- Ord_dc[[paste(BB, YY, sep = "_")]]$data
         
-        Mf <- Mapping_work2 %>% filter(Year==YY, Body_Site==BB, SampleGroup=="Villagers")
+        Ord_dat <- merge(Ord$Vectors, Mf, by = "SampleID")
+        Ord_dat_center2 <- Ord_dat %>% group_by(Expo, Age_grp2) %>% summarise(across(c(PC1, PC2, PC3), mean))
+        Ord_dat_2 <- merge(Ord_dat, Ord_dat_center2, by = c("Expo", "Age_grp2"), suffixes = c("", ".c"))
         
-        varPC1 <- round(dat_ord$ProportionExplained$PC1*100, 2)
-        varPC2 <- round(dat_ord$ProportionExplained$PC2*100, 2)
-        varPC3 <- round(dat_ord$ProportionExplained$PC3*100, 2)
+        var_ord1 <- round(Ord$ProportionExplained$PC1*100, 1) 
+        var_ord2 <- round(Ord$ProportionExplained$PC2*100, 1)
         
-        # distance matrix for YY, BB, and DD
-        DM_tmp <- subset_dm_by_names(dist_qzas[[dat_name]]$data, Mf$SampleID)
-        
-        
-        # Adonis test
-        stats <- adonis2(DM_tmp ~ Urban + Age_num + Gender, by = "margin", data = Mf %>% filter(SampleID %in% attr(DM_tmp, "Labels")))
-        print(stats)
-        
-        stats_disp <- betadisper(DM_tmp, Mf[match(attr(DM_tmp, "Labels"), Mf$SampleID), ]$Urban) %>% permutest
-        
-        stats_tbl <- (stats %>% as.data.frame() %>% rownames_to_column(var = "Factor"))[1:3, c(1, 4:6)] %>% mutate(Body_Site = BB, Year = YY, Index = "Deicode", R2 = round(R2, 3))
-        stats_tbl$p.disp[stats_tbl$Factor=="Urban"] = stats_disp$tab$`Pr(>F)`[1]
-        ## renaming urban as exposure in the graph
-        stats_tbl$Factor[stats_tbl$Factor=="Urban"] = "Exposure"
-        
-        stats_tbl2 <- stats_tbl %>% mutate(stat_label = paste0(Factor, ": p = ", `Pr(>F)`, "; R2 = ", R2), stat_label = ifelse(Factor=="Exposure", paste0(stat_label, "; p.disp = ", p.disp), stat_label)) %>% summarise(stat_label = paste(stat_label, collapse = "\n")) 
-        
-        
-        
-        plot_dt <- dat_ord$Vectors %>% merge(., Mf, by = 1)
-        levels(plot_dt$Urban) <- c("Low", "Medium", "")
-
-        
-        p_lst[[BB]] <- ggplot(plot_dt, aes(x = Urban, y = PC1, fill = Age_grp2)) +
-                geom_boxplot() + theme_bw(base_size = 8) + theme(aspect.ratio = 0.4) +
-                geom_label(data = stats_tbl2, x = Inf, y = Inf, aes(label = stat_label), inherit.aes = F, size = 7/.pt, hjust = 1, vjust = 1) +
-                scale_fill_manual(values = c("#f1eef6", "#bdc9e1", "#74a9cf", "#0570b0")) +
-                scale_x_discrete(drop = F) +
-                
-                labs(x = "", y = paste0("PC1: ", varPC1, "% explained variation"), fill = "Age", title = BB) +
-                coord_flip(clip = "off")
-        p_lst2[[BB]] <- ggplot(plot_dt, aes(x = Urban, y = PC2, fill = Age_grp2)) +
-                geom_boxplot() + theme_bw(base_size = 8) + theme(aspect.ratio = 0.4) +
-                geom_label(data = stats_tbl2, x = Inf, y = Inf, aes(label = stat_label), inherit.aes = F, size = 7/.pt, hjust = 1, vjust = 1) +
-                scale_fill_manual(values = c("#f1eef6", "#bdc9e1", "#74a9cf", "#0570b0")) +
-                scale_x_discrete(drop = F) +
-                
-                labs(x = "", y = paste0("PC2: ", varPC2, "% explained variation"), fill = "Age", title = BB) +
-                coord_flip(clip = "off")
-    }
-    wrap_plots(p_lst, ncol = 2, guides = "collect") + guide_area() + plot_annotation(tag_levels = "A", title = paste0("Deicode-", YY)) & theme(plot.margin = unit(c(3,3,3,3), "pt"))
-    set_panel_size(p = last_plot(), g = patchworkGrob(last_plot()), file = paste0("output/figures/PC1_boxplot_deicode_all_", YY, ".pdf"), width = unit(3, "in"), height = unit(1.2, "in"), useDingbats = F)
-    
-    wrap_plots(p_lst2, ncol = 2, guides = "collect") + guide_area() + plot_annotation(tag_levels = "A", title = paste0("Deicode-", YY)) & theme(plot.margin = unit(c(3,3,3,3), "pt"))
-    set_panel_size(p = last_plot(), g = patchworkGrob(last_plot()), file = paste0("output/figures/PC2_boxplot_deicode_all_", YY, ".pdf"), width = unit(3, "in"), height = unit(1.2, "in"), useDingbats = F)
-    
-}
-
-```
-
-### Other beta index
-```{r}
-Indices = c("uu", "wu", "bc")
-Yrs <- c("2015", "2016")
-BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand")
-
-for (YY in Yrs){
-    #YY = "2015"
-    for (DD in Indices){
-        #DD = "uu"
-        p_lst <- list()
-        for (BB in BodySites){
-            # BB = "Feces"
-            
-            Mf <- Mapping_work2 %>% filter(Year==YY, Body_Site==BB, SampleGroup=="Villagers")
-            
-            # distance matrix for YY, BB, and DD
-            DM_tmp <- subset_dm_by_names(get(paste0("DM_", DD)), Mf$SampleID)
-            pcoa_tmp <- pcoa(DM_tmp)
-            
-             # Adonis test
-            stats <- adonis2(DM_tmp ~ Urban + Age_num + Gender, by = "margin", data = Mf %>% filter(SampleID %in% attr(DM_tmp, "Labels")))
-            print(stats)
-            
-            stats_disp <- betadisper(DM_tmp, Mf[match(attr(DM_tmp, "Labels"), Mf$SampleID), ]$Urban) %>% permutest
-            
-            stats_tbl <- (stats %>% as.data.frame() %>% rownames_to_column(var = "Factor"))[1:3, c(1, 4:6)] %>% mutate(Body_Site = BB, Year = YY, Index = DD, R2 = round(R2, 3))
-            stats_tbl$p.disp[stats_tbl$Factor=="Urban"] = stats_disp$tab$`Pr(>F)`[1]
-            ## renaming urban as exposure in the graph
-            stats_tbl$Factor[stats_tbl$Factor=="Urban"] = "Exposure"
-            
-            stats_tbl2 <- stats_tbl %>% mutate(stat_label = paste0(Factor, ": p = ", `Pr(>F)`, "; R2 = ", R2), stat_label = ifelse(Factor=="Exposure", paste0(stat_label, "; p.disp = ", p.disp), stat_label)) %>% summarise(stat_label = paste(stat_label, collapse = "\n")) 
-            
-            varPC1 <- round(pcoa_tmp$values$Relative_eig[1]*100, 2)
-            varPC2 <- round(pcoa_tmp$values$Relative_eig[2]*100, 2)
-            varPC3 <- round(pcoa_tmp$values$Relative_eig[3]*100, 2)
-            plot_dt <- pcoa_tmp$vectors[,1:3] %>% merge(., Mf, by.x = 0, by.y = 1, all.x = T)
-            levels(plot_dt$Urban) <- c("Low", "Medium", "")
-            
-
-            p_lst[[BB]] <- ggplot(plot_dt, aes(x = Urban, y = Axis.1, fill = Age_grp2)) +
-                geom_boxplot() + theme_bw(base_size = 8) + theme(aspect.ratio = 0.4) +
-                geom_label(data = stats_tbl2, x = Inf, y = Inf, aes(label = stat_label), inherit.aes = F, size = 7/.pt, hjust = 1, vjust = 1) +
-                scale_fill_manual(values = c("#f1eef6", "#bdc9e1", "#74a9cf", "#0570b0")) +
-                scale_x_discrete(drop = F) +
-                
-                labs(x = "", y = paste0("PC1: ", varPC1, "% explained variation"), fill = "Age", title = BB) +
-                coord_flip(clip = "off")
-            last_plot()
-        }
-        wrap_plots(p_lst, ncol = 2, guides = "collect") + guide_area() + plot_annotation(tag_levels = "A", title = paste(DD, YY, sep = "-")) & theme(plot.margin = unit(c(3,3,3,3), "pt"))
-        set_panel_size(p = last_plot(), g = patchworkGrob(last_plot()), file = paste0("output/figures/PC1_boxplot_",DD,"_all_", YY, ".pdf"), width = unit(3, "in"), height = unit(1.2, "in"), useDingbats = F)
+        ggplot(Ord_dat_2, aes(x = PC1, y = PC2)) + 
+            geom_segment(aes(x = PC1.c, y = PC2.c, xend = PC1, yend = PC2, color = Expo), size = 0.3) +
+            geom_point(aes(fill = Expo), size = 1, shape = 21, alpha = 0.5) +
+            geom_point(data = Ord_dat_center2, size = 5, aes(fill = Expo), shape = 21) +
+            geom_label_repel(data = Ord_dat_center2, aes(label = Age_grp2), size = 7/.pt, point.padding = 5) +
+            geom_hline(yintercept = 0, linetype = "dashed", size = 0.2) +
+            geom_vline(xintercept = 0, linetype = "dashed", size = 0.2) +
+            theme_jw(base_size = 10) + theme(aspect.ratio = 1, panel.background = element_rect(color = "black")) +
+            scale_fill_manual(values = Expo_color, limits = force) +
+            scale_color_manual(values = Expo_color) +
+            guides(color = "none") +
+            labs(x = paste0("PC1 (", var_ord1, "%)"), y = paste0("PC2 (", var_ord2, "%)"))
     }
 }
-
 ```
-
 
 
 ## Figure \\label{dist_child_to_adults} Distances of microbial communities between children and adults from the same village across time.
