@@ -157,6 +157,7 @@ write_clip(beta_stats_tbl %>%  pivot_wider(id_cols = c(Index, Year, Body_Site, V
 ```
 
 ### dbRDA with regular beta diversity index
+#### By different years
 ```{r}
 Indices = c("uu", "wu", "bc")
 Yrs <- c("2015", "2016")
@@ -239,6 +240,98 @@ for (YY in Yrs){
         set_panel_size(g = patchworkGrob(p2), file = paste("../results/figures/explore/dbrda_combine", DD,  YY, "Inter.pdf", sep = "_"), width = unit(3.5, "in"), height = unit(3.5, "in"))
     }
 }
+
+beta_stats_tbl <- data.table::rbindlist(beta_stats) %>% arrange(Index, Variable, Body_Site, Year) %>% select(Index, Variable, Body_Site, Year, everything()) %>% filter(!is.na(`F`)) %>% ungroup() %>% mutate(p.adj = p.adjust(`Pr(>F)`, method = "fdr"))
+
+write.table(beta_stats_tbl, file = "../results/tables/beta_stats_age_included.txt", sep = "\t", row.names = F)
+
+```
+
+#### Comparing years
+```{r}
+Indices = c("uu", "wu", "bc")
+BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand")
+Age_col <- c("#f1eef6", "#bdc9e1", "#74a9cf", "#0570b0")
+names(Age_col) <- c("Age_0-3", "Age_3-8", "Age_8-18", "Adults")
+Sex_col <- c("#fbb4ae", "#b3cde3")
+names(Sex_col) <- c("F", "M")
+Yr_col <- c("#cab2d6", "#6a3d9a")
+names(Yr_col) <- c("2015", "2016")
+
+beta_stats <- list()
+for (DD in Indices){
+    #DD = "uu"
+    p_list <- list()
+    for (BB in BodySites){
+        # BB = "Feces"
+        
+        Mf <- Mapping_work %>% filter(Body_Site==BB, SampleGroup=="Villagers")
+        # distance matrix for YY, BB, and DD
+        DM_tmp <- subset_dm_by_names(get(paste0("DM_", DD)), Mf$SampleID)
+        Mf <- Mf %>% filter(SampleID %in% attr(DM_tmp, "Labels")) %>% mutate(Year = factor(Year))
+        
+        # Adonis
+        stats <- adonis2(DM_tmp ~ Expo + Gender + Age_grp2 + Year, by = "margin", data = Mf)
+        stats_tbl <- calcOmega2_dm(stats) %>% mutate(Body_Site = BB, Index = DD)
+        stats_tbl2 <- stats_tbl %>% mutate(Omega2_partial =round(Omega2_partial, 3), stat_label = paste0(Variable, ": p = ", `Pr(>F)`, "; Omega2 = ", Omega2_partial))
+        
+        beta_stats[[paste0(BB, DD)]] <- stats_tbl
+        
+        rda_fit <- dbrda(DM_tmp ~ Expo + Gender + Age_grp2 + Year, data = Mf)
+        
+        # Eigenvalues
+        rda_fit_eg <- eigenvals(rda_fit)
+        var_dbrda1 <- round(rda_fit_eg[1]/sum(rda_fit_eg)*100, 1) 
+        var_dbrda2 <- round(rda_fit_eg[2]/sum(rda_fit_eg)*100, 1)
+        
+        rda_axes <- scores(rda_fit, scaling = "sites", choices = seq(5))$sites %>% as.data.frame() # vectors projecting original data onto axis k, using scaling type 2
+        rda_dat <- merge(rda_axes, Mf, by.x = 0, by.y = 1)
+        rda_dat_center1 <- lapply(c("Expo", "Gender", "Age_grp2", "Year"), function(x){rda_dat %>% group_by_at(x) %>% summarise(across(starts_with("dbRDA"), mean)) %>% rename(Lvls = !!(x))}) 
+        names(rda_dat_center1) <- c("Expo", "Gender", "Age_grp2", "Year")
+        
+        rda_dat_center1 <- data.table::rbindlist(rda_dat_center1, idcol = "Factor")
+        
+        # Main effect plot
+        p_list[["Main"]][[BB]] <- ggplot(rda_dat_center1, aes(x = dbRDA1, y = dbRDA2)) + 
+            geom_point(aes(fill = Lvls, shape = Factor), size = 5) +
+            geom_text_repel(aes(label = Lvls), size = 8/.pt, point.padding = 5) +
+            geom_hline(yintercept = 0, linetype = "dashed", size = 0.2) +
+            geom_vline(xintercept = 0, linetype = "dashed", size = 0.2) +
+            theme_jw(base_size = 10) + theme(aspect.ratio = 1, panel.background = element_rect(color = "black")) +
+            scale_fill_manual(values = c(Expo_color, Age_col, Sex_col, Yr_col)) +
+            scale_shape_manual(values = c(24, 21, 22, 23)) +
+            guides(fill = "none") +
+            labs(x = paste0("dbRDA1 (", var_dbrda1, "%)"), y = paste0("dbRDA2 (", var_dbrda2, "%)"), title = paste(BB, DD))
+        print(p_list[["Main"]][[BB]])
+        set_panel_size(p_list[["Main"]][[BB]], file = paste("../results/figures/explore/dbrda", DD, BB, "main.pdf", sep = "_"), width = unit(3.5, "in"), height = unit(3.5, "in"))
+        
+        rda_dat_center2 <- rda_dat %>% group_by(Expo, Year, Age_grp2) %>% summarise(across(starts_with("dbRDA"), mean))
+        rda_dat_2 <- merge(rda_dat, rda_dat_center2, by = c("Expo", "Year", "Age_grp2"), suffixes = c("", ".c"))
+        # Interaction plot
+        p_list[["Inter"]][[BB]] <- ggplot(rda_dat_2, aes(x = dbRDA1, y = dbRDA2)) + 
+            geom_segment(aes(x = dbRDA1.c, y = dbRDA2.c, xend = dbRDA1, yend = dbRDA2, color = Expo), size = 0.3) +
+            geom_point(aes(fill = Expo, shape = Year), size = 1, alpha = 0.5) +
+            geom_point(data = rda_dat_center2, size = 5, aes(fill = Expo, shape = Year, alpha = Year)) +
+            geom_label_repel(data = rda_dat_center2, aes(label = Age_grp2), size = 7/.pt, point.padding = 5) +
+            geom_hline(yintercept = 0, linetype = "dashed", size = 0.2) +
+            geom_vline(xintercept = 0, linetype = "dashed", size = 0.2) +
+            theme_jw(base_size = 10) + theme(aspect.ratio = 1, panel.background = element_rect(color = "black")) +
+            scale_fill_manual(values = Expo_color, limits = force) +
+            scale_color_manual(values = Expo_color) +
+            scale_shape_manual(values = c(21, 23)) +
+            scale_alpha_manual(values = c())
+            guides(color = "none", fill = guide_legend(override.aes = list(shape = 21))) +
+            labs(x = paste0("dbRDA1 (", var_dbrda1, "%)"), y = paste0("dbRDA2 (", var_dbrda2, "%)"), title = paste(BB, DD))
+        print(p_list[["Inter"]][[BB]])
+        set_panel_size(p_list[["Inter"]][[BB]], file = paste("../results/figures/explore/dbrda", DD, BB,"ExpoAge.pdf", sep = "_"), width = unit(3.5, "in"), height = unit(3.5, "in"))
+    }
+    p1 <- p_list[["Main"]][["Feces"]] + p_list[["Main"]][["Mouth"]] + guide_area() + p_list[["Main"]][["Nose"]] + p_list[["Main"]][["Right_Arm"]] + p_list[["Main"]][["Right_Hand"]] + plot_layout(guides = "collect", nrow = 2) + plot_annotation(title = paste(YY, DD), tag_levels = 'A') & theme(plot.tag = element_text(size = 10, face = "bold"))
+    set_panel_size(g = patchworkGrob(p1), file = paste("../results/figures/explore/dbrda_combine", DD,  YY, "Main.pdf", sep = "_"), width = unit(3.5, "in"), height = unit(3.5, "in"))
+    
+    p2 = p_list[["Inter"]][["Feces"]] + p_list[["Inter"]][["Mouth"]] + guide_area() + p_list[["Inter"]][["Nose"]] + p_list[["Inter"]][["Right_Arm"]] + p_list[["Inter"]][["Right_Hand"]] + plot_layout(guides = "collect", nrow = 2) + plot_annotation(title = paste(YY, DD), tag_levels = 'A') & theme(plot.tag = element_text(size = 10, face = "bold"))
+    set_panel_size(g = patchworkGrob(p2), file = paste("../results/figures/explore/dbrda_combine", DD,  YY, "Inter.pdf", sep = "_"), width = unit(3.5, "in"), height = unit(3.5, "in"))
+}
+
 
 beta_stats_tbl <- data.table::rbindlist(beta_stats) %>% arrange(Index, Variable, Body_Site, Year) %>% select(Index, Variable, Body_Site, Year, everything()) %>% filter(!is.na(`F`)) %>% ungroup() %>% mutate(p.adj = p.adjust(`Pr(>F)`, method = "fdr"))
 
