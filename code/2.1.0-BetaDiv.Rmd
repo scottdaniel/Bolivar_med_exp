@@ -1,0 +1,514 @@
+---
+title: "Beta Diversity"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+      theme: simplex
+      code_folding: hide
+      toc: true
+      toc_depth: 2
+      toc_float: true
+      df_print: kable
+editor_options:
+  chunk_output_type: console
+---
+## Update notes
+2021-08-10
+1. This udpates removed codes for Deicode and Regular PCoA for now since dbRDA is determined to be the method of choice.
+
+## Environ Setup
+```{r setup}
+# Loading library here
+library(knitr)
+library(tidyverse)
+library(broom)
+library(patchwork)
+library(rstatix)
+library(ape)
+library(vegan)
+library(ggrepel)
+
+options(max.print="75")
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, warning = FALSE, prompt=FALSE, tidy = TRUE, comment = NA, message = FALSE)
+opts_knit$set(width=75)
+
+source("assets/utils.R")
+
+# number of cores/thread to use
+nc <- switch(Sys.info()[['sysname']], Windows = 1, Darwin = 4, Linux = 12)
+
+set.seed(20)
+sessionInfo()
+```
+
+## Data Setup and Miscs
+```{r}
+#------- Setup color index ---------#
+# Exposure level
+Expo_color <- c("#1b9e77", "#d95f02", "#8da0cb")
+names(Expo_color) <- c("Low", "Medium", "High")
+print(Expo_color)
+#plot(1:3, 1:3, col = Expo_color, pch = 16, cex = 4)
+# Ethnicity
+Ethnicity_color <- gg_color_hue(3)
+names(Ethnicity_color) <- c("SANEMA", "YEKWANA", "Visitors")
+print(Ethnicity_color)
+
+Sanemas <- c("Chajuranha", "Mosenahanha", "Kuyuwininha", "Shianana-Jiyakwanha", "Washudihanha", "Sudukuma")
+Yekwana <- c("Kanarakuni", "Fiyakwanha")
+
+#------- Import mapping file---------## 
+## This mapping files include all villagers and baseline of visitors of all body sites
+mt_ms = readRDS("../data/Mapping_MS_Expo.Rds")
+Mapping_work <- mt_ms %>% mutate(Expo = ifelse(Ethnicity=="SANEMA", "Low", ifelse(Village=="Fiyakwanha", "Low", ifelse(SampleGroup=="Visitors", "High", "Medium"))) %>% factor(levels = c("Low", "Medium", "High")), Age_num = as.numeric(Age), Age_num = ifelse(is.na(Age_num), as.numeric(gsub(pattern = "_months", replacement = "", Age, ignore.case = T))/12, Age_num), Age_grp1 = ifelse(Age_num>=18, "Adults", "Children"))
+Mapping_work$Age_num[Mapping_work$Age=="4_Days"] <- 0
+Mapping_work$Age_num[Mapping_work$Age=="1_day"] <- 0
+Mapping_work$Age_grp1[Mapping_work$Age_num==0] <- "Children"
+
+Mapping_work$Age_grp2 <- case_when(Mapping_work$Age_num<=3 ~ "Age_0-3", Mapping_work$Age_num<=8 ~ "Age_3-8", Mapping_work$Age_num<=18 ~ "Age_8-18", T ~ "Adults") %>% factor(levels = c("Age_0-3", "Age_3-8", "Age_8-18", "Adults"))
+
+#------- Import data ---------## 
+# Beta distance matrix
+## Unweighted unifrac
+DM_uu <- readRDS("../data/DM_uu_all_20180530.Rds")
+## Weighted unifrac
+DM_wu <- readRDS("../data/DM_wu_all_20180530.Rds")
+## bray curtis
+DM_bc <- readRDS("../data/DM_bc_all_20200604.Rds")
+## deicode
+DM_dc <- readRDS("../data/DM_deicode_all_20200604.Rds")
+Ord_dc <- readRDS("../data/Ord_deicode_all_20200706.Rds")
+
+```
+
+Due to analysis in alpha diversity, age 8 may be a good seperation piont, and also previous study seems to suggest age 3 also is a good seperation point, so the following analysis will breakdown the children to 0-3, 3-8, 8-18, and above 18
+
+## Check the sample size
+```{r}
+Mapping_work %>% filter(SampleID %in% labels(DM_uu), SampleGroup=="Villagers") %>% group_by(Year, Ethnicity, Village, Age_grp2) %>% summarise(N_subject = length(unique(Subject_ID))) %>% ungroup() %>% mutate(Dummy = paste(Year, Age_grp2, sep = "-"), Year = NULL, Age_grp2 = NULL) %>% spread(key = Dummy, value = N_subject) 
+
+Mapping_work %>% filter(SampleID %in% labels(DM_uu), SampleGroup=="Villagers") %>% group_by(Year, Expo, Age_grp2) %>% summarise(N_subject = length(unique(Subject_ID))) %>% spread(key = Age_grp2, value = N_subject) %>% kable 
+```
+
+## Figure \\label{PCoA_of_All}
+### dbRDA
+#### By different years
+```{r}
+Indices = c("uu", "wu", "bc")
+Yrs <- c("2015", "2016")
+BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand")
+Age_col <- c("#f1eef6", "#bdc9e1", "#74a9cf", "#0570b0")
+names(Age_col) <- c("Age_0-3", "Age_3-8", "Age_8-18", "Adults")
+Sex_col <- c("#fbb4ae", "#b3cde3")
+names(Sex_col) <- c("F", "M")
+
+beta_stats <- list()
+
+for (DD in Indices){
+    #DD = "uu"
+    p_list <- list()
+    for (BB in BodySites){
+        # BB = "Feces"
+        for (YY in Yrs){
+            #YY = "2015"
+            Mf <- Mapping_work %>% filter(Year==YY, Body_Site==BB, SampleGroup=="Villagers")
+            # distance matrix for YY, BB, and DD
+            DM_tmp <- subset_dm_by_names(get(paste0("DM_", DD)), Mf$SampleID)
+            Mf <- Mf %>% filter(SampleID %in% attr(DM_tmp, "Labels"))
+            
+            # Adonis test
+            stats <- adonis2(DM_tmp ~ Expo + Gender + Age_grp2, by = "margin", data = Mf)
+            stats_tbl <- calcOmega2_dm(stats) %>% mutate(Body_Site = BB, Year = YY, Index = DD)
+            stats_tbl2 <- stats_tbl %>% mutate(Omega2_partial =round(Omega2_partial, 3), stat_label = paste0("italic(p)[", Variable, "]==", `Pr(>F)`, "~';'~omega[", Variable, "]^2==", Omega2_partial))
+            
+            beta_stats[[paste0(YY, BB, DD)]] <- stats_tbl
+            
+            # dbRDA
+            rda_fit <- dbrda(DM_tmp ~ Expo + Gender + Age_grp2, data = Mf)
+            
+            # Eigenvalues
+            rda_fit_eg <- eigenvals(rda_fit)
+            var_dbrda1 <- round(rda_fit_eg[1]/sum(rda_fit_eg)*100, 1) 
+            var_dbrda2 <- round(rda_fit_eg[2]/sum(rda_fit_eg)*100, 1)
+            
+            rda_axes <- scores(rda_fit, scaling = "sites", choices = seq(5))$sites %>% as.data.frame() # vectors projecting original data onto axis k, using scaling type 2
+            rda_dat <- merge(rda_axes, Mf, by.x = 0, by.y = 1)
+            rda_dat_center1 <- lapply(c("Expo", "Gender", "Age_grp2"), function(x){rda_dat %>% group_by_at(x) %>% summarise(across(starts_with("dbRDA"), mean)) %>% rename(Lvls = !!(x))}) 
+            names(rda_dat_center1) <- c("Expo", "Gender", "Age_grp2")
+            rda_dat_center1 <- data.table::rbindlist(rda_dat_center1, idcol = "Factor")
+            
+            # Main effect plot
+            p_list[["Main"]][[BB]][[YY]] <- ggplot(rda_dat_center1, aes(x = dbRDA1, y = dbRDA2)) + 
+                geom_point(aes(fill = Lvls, shape = Factor), size = 5) +
+                geom_text_repel(aes(label = Lvls), size = 8/.pt, point.padding = 5) +
+                geom_hline(yintercept = 0, linetype = "dashed", size = 0.2) +
+                geom_vline(xintercept = 0, linetype = "dashed", size = 0.2) +
+                theme_jw(base_size = 10) + theme(aspect.ratio = 1, panel.background = element_rect(color = "black")) +
+                scale_fill_manual(values = c(Expo_color, Age_col, Sex_col)) +
+                scale_shape_manual(values = c(24, 21, 22)) +
+                guides(fill = "none") +
+                labs(x = paste0("dbRDA1 (", var_dbrda1, "%)"), y = paste0("dbRDA2 (", var_dbrda2, "%)"), title = paste(BB, DD, YY))
+            print(p_list[["Main"]][[BB]][[YY]])
+            set_panel_size(p_list[["Main"]][[BB]][[YY]], file = paste("../results/figures/explore/dbrda", DD, BB, YY, "main.pdf", sep = "_"), width = unit(3.5, "in"), height = unit(3.5, "in"))
+            
+            rda_dat_center2 <- rda_dat %>% group_by(Expo, Age_grp2) %>% summarise(across(starts_with("dbRDA"), mean))
+            rda_dat_2 <- merge(rda_dat, rda_dat_center2, by = c("Expo", "Age_grp2"), suffixes = c("", ".c"))
+            # Interaction plot
+            p_list[["Inter"]][[BB]][[YY]] <- ggplot(rda_dat_2, aes(x = dbRDA1, y = dbRDA2)) + 
+                geom_segment(aes(x = dbRDA1.c, y = dbRDA2.c, xend = dbRDA1, yend = dbRDA2, color = Expo), size = 0.3) +
+                geom_point(aes(fill = Expo), size = 1, shape = 21, alpha = 0.5) +
+                geom_point(data = rda_dat_center2, size = 5, aes(fill = Expo), shape = 21) +
+                annotate(geom = "label", label = stats_tbl2$stat_label[stats_tbl2$Variable=="Expo"], x = Inf, y = Inf, hjust = 1, vjust = 1, parse = T, size = 7/.pt) +
+                geom_label_repel(data = rda_dat_center2, aes(label = Age_grp2), size = 6/.pt, point.padding = 5) +
+                geom_hline(yintercept = 0, linetype = "dashed", size = 0.2) +
+                geom_vline(xintercept = 0, linetype = "dashed", size = 0.2) +
+                theme_jw(base_size = 10) + theme(aspect.ratio = 1, panel.background = element_rect(color = "black")) +
+                scale_fill_manual(values = Expo_color, limits = force) +
+                scale_color_manual(values = Expo_color) +
+                guides(color = "none") +
+                labs(x = paste0("dbRDA1 (", var_dbrda1, "%)"), y = paste0("dbRDA2 (", var_dbrda2, "%)"), title = paste(BB, DD, YY))
+            print(p_list[["Inter"]][[BB]][[YY]])
+            set_panel_size(p_list[["Inter"]][[BB]][[YY]], file = paste("../results/figures/explore/dbrda", DD, BB, YY, "ExpoAge.pdf", sep = "_"), width = unit(3.5, "in"), height = unit(3.5, "in"))
+        }
+    }
+        p1 <- p_list[["Main"]][["Feces"]][["2015"]] + p_list[["Main"]][["Feces"]][["2016"]] + p_list[["Main"]][["Mouth"]][["2015"]] + p_list[["Main"]][["Mouth"]][["2016"]] + p_list[["Main"]][["Right_Arm"]][["2015"]] + p_list[["Main"]][["Right_Arm"]][["2016"]] + p_list[["Main"]][["Right_Hand"]][["2015"]] + p_list[["Main"]][["Right_Hand"]][["2016"]] + p_list[["Main"]][["Nose"]][["2015"]] + p_list[["Main"]][["Nose"]][["2016"]] + guide_area() + plot_layout(guides = "collect", ncol = 4) + plot_annotation(title = paste("Main effect plots", DD), tag_levels = 'A') & theme(plot.tag = element_text(size = 10, face = "bold"))
+        p1
+
+        set_panel_size(g = patchworkGrob(p1), file = paste("../results/figures/explore/dbrda_combine", DD,  "Main.pdf", sep = "_"), width = unit(2.5, "in"), height = unit(2.5, "in"))
+        
+        p2 <- p_list[["Inter"]][["Feces"]][["2015"]] + p_list[["Inter"]][["Feces"]][["2016"]] + p_list[["Inter"]][["Mouth"]][["2015"]] + p_list[["Inter"]][["Mouth"]][["2016"]] + p_list[["Inter"]][["Right_Arm"]][["2015"]] + p_list[["Inter"]][["Right_Arm"]][["2016"]] + p_list[["Inter"]][["Right_Hand"]][["2015"]] + p_list[["Inter"]][["Right_Hand"]][["2016"]] + p_list[["Inter"]][["Nose"]][["2015"]] + p_list[["Inter"]][["Nose"]][["2016"]] + guide_area() + plot_layout(guides = "collect", ncol = 4) + plot_annotation(title = paste("Interaction Plots", DD), tag_levels = 'A') & theme(plot.tag = element_text(size = 9, face = "bold"))
+        p2
+        set_panel_size(g = patchworkGrob(p2), file = paste("../results/figures/explore/dbrda_combine", DD,  "Inter.pdf", sep = "_"), width = unit(3, "in"), height = unit(3, "in"))
+
+}
+
+beta_stats_tbl <- data.table::rbindlist(beta_stats) %>% arrange(Index, Variable, Body_Site, Year) %>% select(Index, Variable, Body_Site, Year, everything()) %>% filter(!is.na(`F`)) %>% ungroup() %>% mutate(p.adj = p.adjust(`Pr(>F)`, method = "fdr"))
+
+write.table(beta_stats_tbl, file = "../results/tables/beta_stats_age_included.txt", sep = "\t", row.names = F)
+
+```
+
+#### Comparing years
+```{r}
+Indices = c("uu", "wu", "bc")
+BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand")
+Age_col <- c("#f1eef6", "#bdc9e1", "#74a9cf", "#0570b0")
+names(Age_col) <- c("Age_0-3", "Age_3-8", "Age_8-18", "Adults")
+Sex_col <- c("#fbb4ae", "#b3cde3")
+names(Sex_col) <- c("F", "M")
+Yr_col <- c("#cab2d6", "#6a3d9a")
+names(Yr_col) <- c("2015", "2016")
+
+beta_stats <- list()
+for (DD in Indices){
+    #DD = "uu"
+    p_list <- list()
+    for (BB in BodySites){
+        # BB = "Feces"
+        
+        Mf <- Mapping_work %>% filter(Body_Site==BB, SampleGroup=="Villagers")
+        # distance matrix for YY, BB, and DD
+        DM_tmp <- subset_dm_by_names(get(paste0("DM_", DD)), Mf$SampleID)
+        Mf <- Mf %>% filter(SampleID %in% attr(DM_tmp, "Labels")) %>% mutate(Year = factor(Year))
+        
+        # Adonis
+        stats <- adonis2(DM_tmp ~ Expo + Gender + Age_grp2 + Year, by = "margin", data = Mf)
+        stats_tbl <- calcOmega2_dm(stats) %>% mutate(Body_Site = BB, Index = DD)
+        stats_tbl2 <- stats_tbl %>% mutate(Omega2_partial =round(Omega2_partial, 3), stat_label = paste0(Variable, ": p = ", `Pr(>F)`, "; Omega2 = ", Omega2_partial))
+        
+        beta_stats[[paste0(BB, DD)]] <- stats_tbl
+        
+        rda_fit <- dbrda(DM_tmp ~ Expo + Gender + Age_grp2 + Year, data = Mf)
+        
+        # Eigenvalues
+        rda_fit_eg <- eigenvals(rda_fit)
+        var_dbrda1 <- round(rda_fit_eg[1]/sum(rda_fit_eg)*100, 1) 
+        var_dbrda2 <- round(rda_fit_eg[2]/sum(rda_fit_eg)*100, 1)
+        
+        rda_axes <- scores(rda_fit, scaling = "sites", choices = seq(5))$sites %>% as.data.frame() # vectors projecting original data onto axis k, using scaling type 2
+        rda_dat <- merge(rda_axes, Mf, by.x = 0, by.y = 1)
+        rda_dat_center1 <- lapply(c("Expo", "Gender", "Age_grp2", "Year"), function(x){rda_dat %>% group_by_at(x) %>% summarise(across(starts_with("dbRDA"), mean)) %>% rename(Lvls = !!(x))}) 
+        names(rda_dat_center1) <- c("Expo", "Gender", "Age_grp2", "Year")
+        
+        rda_dat_center1 <- data.table::rbindlist(rda_dat_center1, idcol = "Factor")
+        
+        # Main effect plot
+        p_list[["Main"]][[BB]] <- ggplot(rda_dat_center1, aes(x = dbRDA1, y = dbRDA2)) + 
+            geom_point(aes(fill = Lvls, shape = Factor), size = 5) +
+            geom_text_repel(aes(label = Lvls), size = 8/.pt, point.padding = 5) +
+            geom_hline(yintercept = 0, linetype = "dashed", size = 0.2) +
+            geom_vline(xintercept = 0, linetype = "dashed", size = 0.2) +
+            theme_jw(base_size = 10) + theme(aspect.ratio = 1, panel.background = element_rect(color = "black")) +
+            scale_fill_manual(values = c(Expo_color, Age_col, Sex_col, Yr_col)) +
+            scale_shape_manual(values = c(24, 21, 22, 23)) +
+            guides(fill = "none") +
+            labs(x = paste0("dbRDA1 (", var_dbrda1, "%)"), y = paste0("dbRDA2 (", var_dbrda2, "%)"), title = paste(BB, DD))
+        print(p_list[["Main"]][[BB]])
+        #set_panel_size(p_list[["Main"]][[BB]], file = paste("../results/figures/explore/dbrda", DD, BB, "main.pdf", sep = "_"), width = unit(3.5, "in"), height = unit(3.5, "in"))
+        
+        rda_dat_center2 <- rda_dat %>% group_by(Expo, Year, Age_grp2) %>% summarise(across(starts_with("dbRDA"), mean))
+        rda_dat_2 <- merge(rda_dat, rda_dat_center2, by = c("Expo", "Year", "Age_grp2"), suffixes = c("", ".c"))
+        # Interaction plot
+        ggplot(rda_dat_2 %>% filter(Expo=="Low"), aes(x = dbRDA1, y = dbRDA2)) + 
+            geom_segment(aes(x = dbRDA1.c, y = dbRDA2.c, xend = dbRDA1, yend = dbRDA2, color = Expo), size = 0.3) +
+            geom_point(aes(fill = Year, shape = Age_grp2), size = 1, alpha = 0.5) +
+            geom_point(data = rda_dat_center2 %>% filter(Expo=="Low"), size = 5, aes(fill = Year, shape = Age_grp2)) +
+            #geom_label_repel(data = rda_dat_center2, aes(label = Age_grp2), size = 7/.pt, point.padding = 5) +
+            geom_hline(yintercept = 0, linetype = "dashed", size = 0.2) +
+            geom_vline(xintercept = 0, linetype = "dashed", size = 0.2) +
+            theme_jw(base_size = 10) + theme(aspect.ratio = 1, panel.background = element_rect(color = "black")) +
+            facet_grid(.~Expo) +
+            scale_fill_manual(values = c("white", Expo_color["Low"], use.names = F), limits = force) +
+            scale_color_manual(values = Expo_color) +
+            scale_shape_manual(values = c(21, 23, 22, 24)) +
+            guides(color = "none", fill = guide_legend(override.aes = list(shape = 21))) +
+            labs(x = paste0("dbRDA1 (", var_dbrda1, "%)"), y = paste0("dbRDA2 (", var_dbrda2, "%)"), title = paste(BB, DD))
+        print(p_list[["Inter"]][[BB]])
+        set_panel_size(p_list[["Inter"]][[BB]], file = paste("../results/figures/explore/dbrda", DD, BB,"ExpoAge.pdf", sep = "_"), width = unit(3.5, "in"), height = unit(3.5, "in"))
+    }
+    p1 <- p_list[["Main"]][["Feces"]] + p_list[["Main"]][["Mouth"]] + guide_area() + p_list[["Main"]][["Nose"]] + p_list[["Main"]][["Right_Arm"]] + p_list[["Main"]][["Right_Hand"]] + plot_layout(guides = "collect", nrow = 2) + plot_annotation(title = paste(YY, DD), tag_levels = 'A') & theme(plot.tag = element_text(size = 10, face = "bold"))
+    set_panel_size(g = patchworkGrob(p1), file = paste("../results/figures/explore/dbrda_combine", DD,  YY, "Main.pdf", sep = "_"), width = unit(3.5, "in"), height = unit(3.5, "in"))
+    
+    p2 = p_list[["Inter"]][["Feces"]] + p_list[["Inter"]][["Mouth"]] + guide_area() + p_list[["Inter"]][["Nose"]] + p_list[["Inter"]][["Right_Arm"]] + p_list[["Inter"]][["Right_Hand"]] + plot_layout(guides = "collect", nrow = 2) + plot_annotation(title = paste(YY, DD), tag_levels = 'A') & theme(plot.tag = element_text(size = 10, face = "bold"))
+    set_panel_size(g = patchworkGrob(p2), file = paste("../results/figures/explore/dbrda_combine", DD,  YY, "Inter.pdf", sep = "_"), width = unit(3.5, "in"), height = unit(3.5, "in"))
+}
+
+
+beta_stats_tbl <- data.table::rbindlist(beta_stats) %>% arrange(Index, Variable, Body_Site, Year) %>% select(Index, Variable, Body_Site, Year, everything()) %>% filter(!is.na(`F`)) %>% ungroup() %>% mutate(p.adj = p.adjust(`Pr(>F)`, method = "fdr"))
+
+write.table(beta_stats_tbl, file = "../results/tables/beta_stats_age_included.txt", sep = "\t", row.names = F)
+
+```
+
+## Figure \\label{dist_child_to_adults} Distances of microbial communities between children and adults from the same village across time.
+
+Unweighted unifrac, weighted unifrac, and bray-curtis
+```{r}
+compare_c_to_a_kw <- function(cc, a, f = "Urban"){
+  ## c is the dataset for children, and a is the dataset for adults
+  c_lst <- split(cc, as.character(cc[, "Urban"]))
+  ### remove the High since it was generated due to factorized Urban variable
+  
+  a_lst <- split(a, as.character(a[, "Urban"]))
+  
+  c_a_kw <- lapply(seq_along(c_lst), function(x){kruskal.test(list(c_lst[[x]]$distance, a_lst[[x]]$distance))$p.value})
+  names(c_a_kw) <- names(c_lst)
+  
+  c_a_kw <- do.call("rbind", c_a_kw) %>% as.data.frame()
+  colnames(c_a_kw) <- "p.value"
+  return(c_a_kw)
+  
+}
+Indices = c("uu", "wu", "bc")
+Yrs <- c("2015", "2016")
+BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand")
+
+
+for (DD in Indices){
+  #DD = "uu"
+  for (YY in Yrs){
+    #YY = "2015"
+    p_combined <- list()
+    for (BB in BodySites){
+      #BB = "Feces"
+      ## Extract dataset at specific year, body sites
+      dat <- Mapping_work %>% filter(Year==YY, Body_Site==BB, SampleGroup=="Villagers")
+      ## Since the analysis is done to compare children to adults distances at each villages, the dataset need to be separated according to village
+      vls <- split(dat, dat$Village)
+      ## get the distance table by getting all children to adult distance and the adult to adult distance at each villages, the children to children distance is not needed here.
+      
+      Dists <- lapply(vls, function(x){subset_dm_by_names(get(paste0("DM_", DD)), x$SampleID) %>% compare_group_dist(., x, "SampleID", "Age_grp1") %>% filter(Group_comp != "Children_Children") %>% mutate(SampleID = ifelse(Group_comp=="Adults_Adults", item1, ifelse(get_group_name(item1, x, "SampleID", "Age_grp1")=="Children", item1, item2)), item1 = NULL, item2 = NULL)}) ### here it doesn't matter which samples were compared for adult-adult distance, so we can use sample id of either item 1 or item 2 as the sample id outputed, otherwise, output the children sample id
+      
+      
+      ## the Dists outputed from previous step is a list of dataframes (1 dataframe per village) in which 3 columns: distance, group, sample id, here the list is combined into a dataframe
+      Dists <- do.call("rbind", Dists)
+      ## split the dataframe by either adult-adult comparison, or adult-children comparison
+      Dists2 <- Dists %>% split(Dists$Group_comp)
+      ## average the distance between a child to different adults within the same village, this average will be compared in the statistics
+      Dists2$Adults_Children <- Dists2$Adults_Children %>% group_by(Group_comp, SampleID) %>% summarise(distance = mean(distance)) %>% ungroup
+      
+      Dists2 <- do.call("rbind", Dists2)
+      
+      ## add the metadata to the above dataframe
+      dat2 <- merge(Dists2, dat %>% select(SampleID, Age_num, Age_grp1, Ethnicity, Village, Urban), by = "SampleID", all.x = T)
+      
+      ## summarize the children results
+      dat2_c <- dat2 %>% filter(Age_grp1=="Children")
+      dat2_c_sum <- dat2_c %>% group_by(Urban, Age_num) %>% summarise(MCB = mean_cl_boot(distance) %>% paste(collapse = "_")) %>% separate(MCB, c("Mean", "Lwr", "Uwr"), sep = "_", convert = T) %>% ungroup
+      ### stats on the children results, a non-parameter comparison between exposure levels will be done on a age-interval of 2 yrs, the p value will be adjusted using fdr (q<0.1)
+      dat2_c_for_stat <- dat2_c %>% mutate(age_comp_grps = floor(Age_num/2)*2+0.5)
+      dat2_c_for_stat_kw <- dat2_c_for_stat %>% group_by(age_comp_grps) %>% filter(length(unique(Urban))>1) %>% kruskal_test(distance ~ Urban) %>% merge(.,  dat2_c_for_stat %>% group_by(age_comp_grps, Urban) %>% summarise(Mean = mean(distance)) %>% filter(Mean==max(Mean)), by = 1) %>% ungroup() %>% mutate(fdr.q = p.adjust(p, method = "fdr") %>% round(3)) %>% filter(fdr.q<=0.1)
+      
+      ## separate the adults-adults distance
+      dat2_a <- dat2 %>% filter(Age_grp1=="Adults")
+      
+      ## stats comparing children to adults
+      dat2_c_to_a_stats <- lapply(split(dat2_c_for_stat, dat2_c_for_stat$age_comp_grps), function(x){compare_c_to_a_kw(x, dat2_a) %>% rownames_to_column(var = "Urban") %>% mutate(age_comp_grps = x$age_comp_grps[1], note = "Child_to_adults")}) %>% do.call("rbind", .) %>% ungroup() %>% mutate(fdr.q = p.adjust(p.value, method = "fdr") %>% round(3)) %>% filter(fdr.q<=0.1)
+      
+      ## plot the children-adult distance
+      p1 <- ggplot(dat2_c, aes(x = Age_num, y = distance, color = Urban)) +
+        geom_point(size = 1) +
+        geom_ribbon(data = dat2_c_sum, aes(x = Age_num, ymin = Lwr, ymax = Uwr, fill = Urban), alpha = 0.5, inherit.aes = F) +
+        geom_vline(xintercept = c(seq(1, 17, 2) + 0.5), linetype = "dotted") +
+        stat_summary(geom = "line", fun.y = "mean") +
+        theme_Publication(base_size = 10) + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+        scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+        scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
+        scale_x_continuous(breaks = seq(0, 18, 1), labels = sapply(seq(0,18,1), function(x){if(x%%2==0){""}else{x}})) +
+        labs(x = "Age (Years)", y = paste(DD, "distance"), subtitle = "Children to adults", fill = "Exposure", color = "Exposure") + 
+        coord_cartesian(clip = "off")
+      
+      
+      ### check if any significance at each age interval
+      #### following parameters are used to set the position of the stats on graph
+      unit_y = (range(dat2_c$distance)[2]-range(dat2_c$distance)[1])/4
+      y_c_comp = round(max(dat2_c$distance) + unit_y, 2)
+      y_c_to_a_l = round(unit_y/3 + y_c_comp, 2)
+      y_c_to_a_m = round(1.5 * unit_y/3 + y_c_to_a_l, 2)
+      x_pos = max(dat2_c_for_stat_kw$age_comp_grps, dat2_c_to_a_stats$age_comp_grps) + 1
+      if (nrow(dat2_c_for_stat_kw)>0){
+        ## plot significant fdr.q value, the color indicated which groups is higher
+        p1 <- p1 + geom_text(data = dat2_c_for_stat_kw, aes(x = age_comp_grps, y = y_c_comp, label = fdr.q, color = Urban), size = 7/.pt, show.legend = F) + annotate("label", x = x_pos, y = y_c_comp, size  = 7/.pt, label = "Low to Medium", fill = "white", hjust = 0)
+      }
+      if (nrow(dat2_c_to_a_stats)>0){
+        dat2_c_to_a_stats <- dat2_c_to_a_stats %>% mutate(stat_y2 = ifelse(Urban=="Low", y_c_to_a_l, y_c_to_a_m))
+        p1 <- p1 + geom_text(data = dat2_c_to_a_stats, aes(x = age_comp_grps, y = stat_y2, label = fdr.q, color = Urban), size = 7/.pt, show.legend = F) + annotate("label", x = x_pos, y = y_c_to_a_l, size  = 7/.pt, label = "Low to Adults", fill = "white", hjust = 0) + annotate("label", x = x_pos, y = y_c_to_a_m, size  = 7/.pt, label = "Medium to Adults", fill = "white", hjust = 0)
+      }
+      print(p1)
+      
+      p2 <- ggplot(dat2_a, aes(x = Urban, y = distance, color = Urban)) +
+        geom_boxplot(show.legend = F) +
+        theme_Publication(base_size = 10) + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+        scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+        labs(x = "Exposure", y = paste(DD, "distance"), subtitle = "Within group distance among adults")
+      
+      print(p2)
+      
+      # 
+      p_ranges_y <- c(ggplot_build(p1)$layout$panel_scales_y[[1]]$range$range, ggplot_build(p2)$layout$panel_scales_y[[1]]$range$range)
+      
+      p_combined[[BB]] <- p1 + p2 + plot_layout(guides = "collect", widths = c(3,1)) & scale_y_continuous(breaks = seq(round(min(p_ranges_y), 1), round(max(p_ranges_y), 1), 0.1), limits = c(min(p_ranges_y), max(p_ranges_y))) 
+      p_combined[[BB]][[1]] <- p_combined[[BB]][[1]] + labs(tag = BB) + theme(plot.tag.position = c(0, 1), plot.tag = element_text(size = 11, face = "bold", hjust = 0, vjust = 0, margin = ggplot2::margin(b = 5)))
+      print(p_combined[[BB]])
+      set_panel_size(p = p_combined[[BB]], g = patchworkGrob(p_combined[[BB]]), file = paste0("output/figures/Distance_Children_", DD, "_", YY, "_", BB, ".pdf"), family = "Arial", width = unit(c(3, 1), "in"), height = unit(1.5, "in"), useDingbats = F)
+      
+    }
+  } 
+}
+
+```
+
+deicode
+```{r}
+compare_c_to_a_kw <- function(cc, a, f = "Urban"){
+  ## c is the dataset for children, and a is the dataset for adults
+  c_lst <- split(cc, as.character(cc[, "Urban"]))
+  ### remove the High since it was generated due to factorized Urban variable
+  
+  a_lst <- split(a, as.character(a[, "Urban"]))
+  
+  c_a_kw <- lapply(seq_along(c_lst), function(x){kruskal.test(list(c_lst[[x]]$distance, a_lst[[x]]$distance))$p.value})
+  names(c_a_kw) <- names(c_lst)
+  
+  c_a_kw <- do.call("rbind", c_a_kw) %>% as.data.frame()
+  colnames(c_a_kw) <- "p.value"
+  return(c_a_kw)
+  
+}
+Indices = c("deicode")
+Yrs <- c("2015", "2016")
+BodySites <- c("Feces", "Mouth", "Nose", "Right_Arm", "Right_Hand")
+
+
+
+for (YY in Yrs){
+  #YY = "2015"
+  p_combined <- list()
+  for (BB in BodySites){
+    #BB = "Feces"
+    ## Extract dataset at specific year, body sites
+    dat <- Mapping_work %>% filter(Year==YY, Body_Site==BB, SampleGroup=="Villagers")
+    ## Since the analysis is done to compare children to adults distances at each villages, the dataset need to be separated according to village
+    vls <- split(dat, dat$Village)
+    ## get the distance table by getting all children to adult distance and the adult to adult distance at each villages, the children to children distance is not needed here.
+    
+    Dists <- lapply(vls, function(x){subset_dm_by_names(DM_deicode[[paste0(BB, "_", YY)]], x$SampleID) %>% compare_group_dist(., x, "SampleID", "Age_grp1") %>% filter(Group_comp != "Children_Children") %>% mutate(SampleID = ifelse(Group_comp=="Adults_Adults", item1, ifelse(get_group_name(item1, x, "SampleID", "Age_grp1")=="Children", item1, item2)), item1 = NULL, item2 = NULL)}) ### here it doesn't matter which samples were compared for adult-adult distance, so we can use sample id of either item 1 or item 2 as the sample id outputed, otherwise, output the children sample id
+    
+    
+    ## the Dists outputed from previous step is a list of dataframes (1 dataframe per village) in which 3 columns: distance, group, sample id, here the list is combined into a dataframe
+    Dists <- do.call("rbind", Dists)
+    ## split the dataframe by either adult-adult comparison, or adult-children comparison
+    Dists2 <- Dists %>% split(Dists$Group_comp)
+    ## average the distance between a child to different adults within the same village, this average will be compared in the statistics
+    Dists2$Adults_Children <- Dists2$Adults_Children %>% group_by(Group_comp, SampleID) %>% summarise(distance = mean(distance)) %>% ungroup()
+    
+    Dists2 <- do.call("rbind", Dists2)
+    
+    ## add the metadata to the above dataframe
+    dat2 <- merge(Dists2, dat %>% select(SampleID, Age_num, Age_grp1, Ethnicity, Village, Urban), by = "SampleID", all.x = T)
+    
+    ## summarize the children results
+    dat2_c <- dat2 %>% filter(Age_grp1=="Children")
+    dat2_c_sum <- dat2_c %>% group_by(Urban, Age_num) %>% summarise(MCB = mean_cl_boot(distance) %>% paste(collapse = "_")) %>% separate(MCB, c("Mean", "Lwr", "Uwr"), sep = "_", convert = T) %>% ungroup
+    ### stats on the children results, a non-parameter comparison between exposure levels will be done on a age-interval of 2 yrs, the p value will be adjusted using fdr (q<0.1)
+    dat2_c_for_stat <- dat2_c %>% mutate(age_comp_grps = floor(Age_num/2)*2+0.5)
+    dat2_c_for_stat_kw <- dat2_c_for_stat %>% group_by(age_comp_grps) %>% filter(length(unique(Urban))>1) %>% kruskal_test(distance ~ Urban) %>% merge(.,  dat2_c_for_stat %>% group_by(age_comp_grps, Urban) %>% summarise(Mean = mean(distance)) %>% filter(Mean==max(Mean)), by = 1) %>% ungroup() %>% mutate(fdr.q = p.adjust(p, method = "fdr") %>% round(3)) %>% filter(fdr.q<=0.1)
+    
+    ## separate the adults-adults distance
+    dat2_a <- dat2 %>% filter(Age_grp1=="Adults")
+    
+    ## stats comparing children to adults
+    dat2_c_to_a_stats <- lapply(split(dat2_c_for_stat, dat2_c_for_stat$age_comp_grps), function(x){compare_c_to_a_kw(x, dat2_a) %>% rownames_to_column(var = "Urban") %>% mutate(age_comp_grps = x$age_comp_grps[1], note = "Child_to_adults")}) %>% do.call("rbind", .) %>% ungroup() %>% mutate(fdr.q = p.adjust(p.value, method = "fdr") %>% round(3)) %>% filter(fdr.q<=0.1)
+    
+    ## plot the children-adult distance
+    p1 <- ggplot(dat2_c, aes(x = Age_num, y = distance, color = Urban)) +
+      geom_point(size = 1) +
+      geom_ribbon(data = dat2_c_sum, aes(x = Age_num, ymin = Lwr, ymax = Uwr, fill = Urban), alpha = 0.5, inherit.aes = F) +
+      geom_vline(xintercept = c(seq(1, 17, 2) + 0.5), linetype = "dotted") +
+      stat_summary(geom = "line", fun = "mean") +
+      theme_Publication(base_size = 10) + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+      scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+      scale_fill_manual(breaks = names(Urban_color), values = Urban_color) +
+      scale_x_continuous(breaks = seq(0, 18, 1), labels = sapply(seq(0,18,1), function(x){if(x%%2==0){""}else{x}})) +
+      labs(x = "Age (Years)", y = "Deicode Distance", subtitle = "Children to adults", fill = "Exposure", color = "Exposure") + 
+      coord_cartesian(clip = "off")
+    
+    
+    ### check if any significance at each age interval
+    #### following parameters are used to set the position of the stats on graph
+    unit_y = (range(dat2_c$distance)[2]-range(dat2_c$distance)[1])/4
+    y_c_comp = round(max(dat2_c$distance) + unit_y, 2)
+    y_c_to_a_l = round(unit_y/3 + y_c_comp, 2)
+    y_c_to_a_m = round(1.5 * unit_y/3 + y_c_to_a_l, 2)
+    x_pos = max(dat2_c_for_stat_kw$age_comp_grps, dat2_c_to_a_stats$age_comp_grps) + 1
+    if (nrow(dat2_c_for_stat_kw)>0){
+      ## plot significant fdr.q value, the color indicated which groups is higher
+      p1 <- p1 + geom_text(data = dat2_c_for_stat_kw, aes(x = age_comp_grps, y = y_c_comp, label = fdr.q, color = Urban), size = 7/.pt, show.legend = F) + annotate("label", x = x_pos, y = y_c_comp, size  = 7/.pt, label = "Low to Medium", fill = "white", hjust = 0)
+    }
+    if (nrow(dat2_c_to_a_stats)>0){
+      dat2_c_to_a_stats <- dat2_c_to_a_stats %>% mutate(stat_y2 = ifelse(Urban=="Low", y_c_to_a_l, y_c_to_a_m))
+      p1 <- p1 + geom_text(data = dat2_c_to_a_stats, aes(x = age_comp_grps, y = stat_y2, label = fdr.q, color = Urban), size = 7/.pt, show.legend = F) + annotate("label", x = x_pos, y = y_c_to_a_l, size  = 7/.pt, label = "Low to Adults", fill = "white", hjust = 0) + annotate("label", x = x_pos, y = y_c_to_a_m, size  = 7/.pt, label = "Medium to Adults", fill = "white", hjust = 0)
+    }
+    print(p1)
+    
+    p2 <- ggplot(dat2_a, aes(x = Urban, y = distance, color = Urban)) +
+      geom_boxplot(show.legend = F) +
+      theme_Publication(base_size = 10) + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+      scale_color_manual(breaks = names(Urban_color), values = Urban_color) +
+      labs(x = "Exposure", y = "Deicode distance", subtitle = "Within group distance among adults")
+    
+    print(p2)
+    
+    # 
+    p_ranges_y <- c(ggplot_build(p1)$layout$panel_scales_y[[1]]$range$range, ggplot_build(p2)$layout$panel_scales_y[[1]]$range$range)
+    
+    p_combined[[BB]] <- p1 + p2 + plot_layout(guides = "collect", widths = c(3,1)) & scale_y_continuous(limits = c(min(p_ranges_y), max(p_ranges_y))) 
+    p_combined[[BB]][[1]] <- p_combined[[BB]][[1]] + labs(tag = BB) + theme(plot.tag.position = c(0, 1), plot.tag = element_text(size = 11, face = "bold", hjust = 0, vjust = 0, margin = ggplot2::margin(b = 5)))
+    print(p_combined[[BB]])
+    set_panel_size(p = p_combined[[BB]], g = patchworkGrob(p_combined[[BB]]), file = paste0("output/figures/Distance_Children_Deicode", "_", YY, "_", BB, ".pdf"), family = "Arial", width = unit(c(3, 1), "in"), height = unit(1.5, "in"), useDingbats = F)
+    
+  }
+} 
+
+
+```
