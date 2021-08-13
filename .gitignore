@@ -35,3 +35,7 @@ vignettes/*.pdf
 
 # Temporary trash files
 **/Trash/*
+.DS_Store
+Data/
+bello_archive.tar.gz
+Bolivar_med_exp.Rproj

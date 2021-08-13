@@ -1,0 +1,2505 @@
+
+<!-- "Child" report do not have Yaml or knitr blocks -->
+<!-- See this post for details: https://martinctc.github.io/blog/first-world-problems-very-long-rmarkdown-documents/ -->
+<!-- BONUS: rejoice! all libraries and functions are inherited from the "mother" -->
+
+```{r child_specific_libraries}
+library(here)
+library(tidyverse)
+library(KEGGREST)
+library(ggbeeswarm)
+library(usedist)
+library(magrittr)
+library(pander)
+library(pheatmap)
+library(RColorBrewer)
+library(viridis)
+library(vegan)
+library(ape)
+library(qiimer)
+```
+
+```{r child_specific_functions}
+source(here("Scripts","Functions","for_functional_analysis.R"))
+```
+
+<!-- So we do not have to continually run the "mother" script while we are testing things -->
+
+```{r load savepoint, include=FALSE}
+load(here("Data","2019-12-05_bello_data.RData"))
+```
+
+
+# Functional assignment of reads matching to known genes
+
+Abundance of Kyoto Encyclopedia of Genes and Genomes (KEGG) orthologs (KO) were calculated. Here, we use Bray-Curtis distance to compare the KO composition of the samples to each other.
+
+## Ordination based on Bray-Curtis distance for KEGG orthology assignments
+
+```{r load bello}
+
+base_dir = here("Data","bello_functional_results","species_prokaryotes")
+
+s_bello %<>%
+  mutate(age = as.numeric(age)) %>%
+  mutate(age_class = case_when((age > 18) ~ "Age > 18 yrs",
+                               (age < 5) ~ "Age < 5 yrs",
+                               (age >= 5 & age <= 18) ~ "5 yrs <= Age <= 18 yrs")) %>%
+  mutate(study_by_age = paste0(study, " ", age_class)) %>%
+  mutate(age_class = as.factor(age_class), study_by_age = as.factor(study_by_age)) %>%
+  mutate(age_class = fct_relevel(age_class, "Age < 5 yrs", "5 yrs <= Age <= 18 yrs"))
+
+s_seq <- s_bello %>%
+  left_join(preprocess, by = c("SampleID" = "Samples")) %>%
+  select(SampleID, nonhost)
+
+bello_kegg <- read_table_if_no_rds(bello_kegg, rds_file_name = "bello_kegg.rds", base_dir, s_seq)
+
+```
+
+```{r}
+age_cutoff = 18
+color_by = "study_group"
+shape_by = "age_class"
+```
+
+Here we will construct PCoA plots showing overall differences of KEGG term abundances. Since children's microbiomes are often different from adults we will split into age classes of `r unique(s_bello$age_class)`. First, a PCoA plot of samples from children with ages of less than or equal to `r age_cutoff` years.
+
+```{r Fig5A children}
+
+s_toPlot <- s_bello %>%
+  filter(age <= age_cutoff)
+
+ko <- bello_kegg %>%
+  select(Term = geneID, Count = sum_by_kegg_term, SampleID) %>%
+  spread_to_numeric_matrix(., "Term", "SampleID", "Count")
+
+bc_kegg <- vegdist(t(ko))
+
+dist_in <- usedist::dist_subset(bc_kegg, s_toPlot$SampleID)
+
+make_pcoa_plot_with_closed_and_open_circles_for_points(dist_in, s_toPlot, color_by=color_by, shape_by=shape_by)
+
+figure_plot <- make_pcoa_plot(dist_in, s_toPlot, color_by = color_by, shape_by = NULL) +
+  labs(title = "Children", color = "Urbanicity")
+
+plot(figure_plot)
+
+ggsave(filename = here("Output","Fig5A_children.pdf"), plot = figure_plot, width = 4, height = 3, useDingbats= F)
+
+```
+
+### Permanova on Bray-curtis distances
+
+Next, we ask the question: are the study groups significantly different overall. For this, we can run Permanova on the centers of the dispersions. We can also compare the dispersions (spread) of the distances for each group.
+
+```{r}
+
+adtable <- adonis(dist_in ~ s_toPlot$study_group)
+
+as.data.frame(adtable$aov.tab) %>%
+pander(split.table=Inf, digits=2, caption = "Permanova for differences in urbanicity")
+
+betatable <- betadisper(dist_in, s_toPlot$study_group)
+
+betatable
+
+```
+
+### Jaccard subplot
+
+Here we show the same plot but using Jaccard distances. 
+
+```{r}
+
+# I wonder why we don't do it like this:
+# jaccard_kegg <- vegdist(t(ko), method = "jaccard")
+# it IS different than our standard method:
+
+jaccard_kegg <- vegdist(t(ko), binary = T)
+
+dist_in <- usedist::dist_subset(jaccard_kegg, s_toPlot$SampleID)
+
+make_pcoa_plot_with_closed_and_open_circles_for_points(dist_in, s_toPlot, color_by=color_by, shape_by=shape_by)
+
+# my_plot <- make_pcoa_plot_with_closed_and_open_circles_for_points(dist_in, s_toPlot, color_by=color_by, shape_by=shape_by)
+# 
+# my_plot + facet_wrap(~study_group)
+
+```
+
+
+
+
+
+And here we show a PCoA plot of KEGG terms for adults above the age of `r age_cutoff` years.
+
+```{r Fig5A adults}
+
+s_toPlot <- s_bello %>%
+  filter(age > age_cutoff)
+
+ko <- bello_kegg %>%
+  select(Term = geneID, Count = sum_by_kegg_term, SampleID) %>%
+  spread_to_numeric_matrix(., "Term", "SampleID", "Count")
+
+bc_kegg <- vegdist(t(ko))
+
+dist_in <- usedist::dist_subset(bc_kegg, s_toPlot$SampleID)
+
+make_pcoa_plot_with_closed_and_open_circles_for_points(dist_in, s_toPlot, color_by=color_by, shape_by=shape_by)
+
+figure_plot <- make_pcoa_plot(dist_in, s_toPlot, color_by = color_by, shape_by = NULL) +
+  labs(title = "Adults", color = "Exposure")
+
+ggsave(filename = here("Output","Fig5A_adults.pdf"), plot = figure_plot, width = 4, height = 3, useDingbats= F)
+
+```
+
+### Permanova on Bray-curtis distances
+
+Again, we run Permanova on the centers of the dispersions. We also compare the dispersions (spread) of the distances for each group.
+
+```{r}
+
+adtable <- adonis(dist_in ~ s_toPlot$study_group)
+
+as.data.frame(adtable$aov.tab) %>%
+pander(split.table=Inf, digits=2, caption = "Permanova for differences in urbanicity")
+
+betatable <- betadisper(dist_in, s_toPlot$study_group)
+
+betatable
+
+```
+
+### Jaccard subplot
+
+Here we show the same plot but using Jaccard distances. 
+
+```{r}
+
+jaccard_kegg <- vegdist(t(ko), binary = T)
+
+dist_in <- usedist::dist_subset(jaccard_kegg, s_toPlot$SampleID)
+
+make_pcoa_plot_with_closed_and_open_circles_for_points(dist_in, s_toPlot, color_by=color_by, shape_by=shape_by)
+
+```
+
+
+
+
+```{r constants for this}
+heatmap_fp = "bello_pathway_abundance_per_sample.pdf"
+group_by = "study_group"
+order_by = "age_class"
+```
+
+
+A heatmap of the gene proportions summed by pathway is included in the attached file, `r heatmap_fp`.  The top 75 pathways are shown, selected by mean abundance. Gene categories are clustered by canberra difference, grouped by urbanicity, and ordered by age class.
+
+```{r heatmap bello}
+
+s_toPlot <- s_bello
+
+prokarotic_paths <- read_tsv(here("prokaryotic_pathway.list"), col_names = c("PathwayID", "Description")) %>%
+  mutate(PathwayID = paste0("path:map", PathwayID)) %>%
+  left_join(read_rds(here("kegg_pathways.RDS")), by = "PathwayID") %>%
+  mutate(Ortholog = str_remove(Ortholog, "ko:")) %>%
+  select(-Description)
+
+bello_ko_to_path <- ko %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Ortholog") %>%
+  gather(key = "SampleID", value = "Prop", -Ortholog) %>%
+  filter(!str_detect(Ortholog, ",")) %>%
+  merge(prokarotic_paths, by = "Ortholog") %>%
+  mutate(prop_path = Prop * Weight) %>%
+  group_by(PathwayName, SampleID) %>%
+  summarise(x = sum(prop_path)) %>%
+  ungroup() %>%
+  spread_to_numeric_matrix(., "PathwayName", "SampleID", "x")
+
+bello_ko_to_path <- sweep(bello_ko_to_path, 2, colSums(bello_ko_to_path), "/")
+  
+top_path <- names(sort(rowMeans(bello_ko_to_path), decreasing = TRUE))[1:75]
+
+path_heatmap <- bello_ko_to_path[rownames(bello_ko_to_path) %in% top_path,]
+
+## group the SampleIDs
+grps <- c(group_by, order_by)
+s_toPlot %<>% arrange_(.dots=grps)
+#s_toPlot %>% arrange(list(!!! grps)) ##doesnt work!!!
+
+path_heatmap <- path_heatmap[, s_toPlot$SampleID]
+
+anno <- s_toPlot[,grps] %>% as.data.frame()
+rownames(anno) <- s_toPlot$SampleID
+colnames(anno) <- grps  
+
+pheatmap(
+  path_heatmap[,s_toPlot$SampleID],
+  annotation = anno,
+  color = saturated_rainbow(100, saturation_limit = max(path_heatmap)*2),
+  breaks = c(0, 1e-10, seq(0.001, max(path_heatmap)*2, length.out = 99)),
+  filename = here("Output",heatmap_fp),
+  clustering_distance_rows = "canberra",
+  cluster_cols = F,
+  cellwidth = 9, cellheight = 9, fontsize = 10)
+
+pheatmap(
+  path_heatmap[,s_toPlot$SampleID],
+  annotation = anno,
+  color = saturated_rainbow(100, saturation_limit = max(path_heatmap)*2),
+  breaks = c(0, 1e-10, seq(0.001, max(path_heatmap)*2, length.out = 99)),
+  clustering_distance_rows = "canberra",
+  cluster_cols = F,
+  cellwidth = 9, cellheight = 9, fontsize = 10)
+
+```
+
+```{r}
+top10_fp = "bello_top10_pathways_all_samples.pdf"
+```
+
+The next graph shows the top 10 pathways as a column chart. This is also shown in the attached file `r top10_fp`. This chart includes all ages, in the latter section of this report we will subdivide them into age classes again.
+
+```{r top 10 bello}
+
+bello_ko_pathplot <- bello_ko_to_path %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Pathway") %>%
+  gather(key = "SampleID", value = "Prop", -Pathway) %>%
+  mutate(Pathway = fct_lump(Pathway, n = 11, w = .$Prop, other_level = "Other")) %>%
+  group_by(Pathway, SampleID) %>%
+  summarise(Prop = sum(Prop)) %>%
+  ungroup() %>%
+  group_by(SampleID) %>%
+  mutate(sort_prop = Prop[Pathway %in% "Other"]) %>%
+  ungroup() 
+
+bello_ko_pathplot %>%
+  mutate(SampleID = fct_reorder(SampleID, sort_prop)) %>%
+  
+  ggplot(aes(x = SampleID, y=Prop)) +
+    geom_col(aes(fill=Pathway))+ #,  position = position_fill()
+  theme_bw() +
+    theme( axis.text.x = element_blank(), strip.background = element_blank()) + #element_text(angle=45, vjust=1, hjust=1)
+    scale_color_brewer(palette = "Set2") +
+  labs( title = "Top 10 pathways across all Amerindian samples",
+        y="Proportion of Kegg Pathway counts",
+        x="")
+
+ggsave(here("Output",top10_fp), width=7, height=5, useDingbats=F)
+
+```
+
+# Linear models of KEGG pathway changes
+
+## Children
+```{r}
+number_of_tests=100
+```
+
+ Then, we will conduct pathway change tests based on the level of contact with Western medicine. This will be done on the top `r number_of_tests`.
+
+```{r lm within Amerindian children}
+
+paths_to_test <- bello_ko_to_path %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Pathway") %>%
+  gather(key = "SampleID", value = "Prop", -Pathway) %>%
+  mutate(Pathway = fct_lump(Pathway, n = number_of_tests+1, w = .$Prop, other_level = "Other")) %>%
+  filter(!Pathway %in% "Other") %>%
+  pivot_to_numeric_matrix(obs_col = Pathway, feature_col = SampleID, value_col = Prop)
+
+urban_func_tests <- function() {
+s_toTest <- resetSampleSheet(s)
+
+s_toTest %<>%
+  mutate(study_group = fct_relevel(study_group, "LowUrban")) %>%
+  mutate(age = as.numeric(age)) %>%
+  filter(age <= 18)
+
+
+
+form1 <- "props_logit ~ study_group"
+props_toTest <- paths_to_test[,s_toTest$SampleID]
+
+summaries_df <- run_lm_kegg(props_toTest, s_toTest, form1, 0.05)
+
+return(summaries_df)
+}
+
+urban_func_tests() %>%
+  mutate(term = gsub("study_group","",term)) %>%
+  pander(split.table=Inf, digits=2, caption = "Children tribal members (age <= 18).\nLinear model fit by method of least-squares,\nReference level is LowUrban.\nFormula: logit(Abundance) ~ Medium/LowUrban.")
+
+```
+
+
+
+
+## Adults
+
+Now, let us do the same thing with the Adult tribal members.
+
+```{r lm with Amerindian adults}
+
+paths_to_test <- bello_ko_to_path %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Pathway") %>%
+  gather(key = "SampleID", value = "Prop", -Pathway) %>%
+  mutate(Pathway = fct_lump(Pathway, n = number_of_tests+1, w = .$Prop, other_level = "Other")) %>%
+  filter(!Pathway %in% "Other") %>%
+  pivot_to_numeric_matrix(obs_col = Pathway, feature_col = SampleID, value_col = Prop)
+
+urban_func_tests <- function() {
+s_toTest <- resetSampleSheet(s)
+
+s_toTest %<>%
+  mutate(study_group = fct_relevel(study_group, "LowUrban")) %>%
+  mutate(age = as.numeric(age)) %>%
+  filter(age > 18)
+
+
+
+form1 <- "props_logit ~ study_group"
+props_toTest <- paths_to_test[,s_toTest$SampleID]
+
+summaries_df <- run_lm_kegg(props_toTest, s_toTest, form1, 0.05)
+
+return(summaries_df)
+}
+
+urban_func_tests() %>%
+  mutate(term = gsub("study_group","",term)) %>%
+  pander(split.table=Inf, digits=2, caption = "Adult tribal members (age > 18).\nLinear model fit by method of least-squares,\nReference level is LowUrban.\nFormula: logit(Abundance) ~ Medium/LowUrban.")
+
+```
+
+# Gene abundance vs taxonomic abundance
+
+There is also the idea that taxonomic changes may occur but gene function is redundant enough to not change overall. Additionally, if we tie gene changes back to individual taxa we can test the hypothesis that bacterial gene abundance should correlate with decreased bacterial abundance. 
+
+From 16s results, bacterial species that are changing in MediumUrban compared to LowUrban are as follows: 
+LOSS :
+Eubacterium_ruminantium (loss), Ruminococcaceae UCG-013 (loss)
+Ruminiclostridium-6 (loss 2016 only)
+Sutterella (loss)
+Methanobrevibacter (loss)
+
+GAIN:
+Ruminiclostridium-9 (gain) 
+Ruminobacter (gain in 2016 only)
+
+From the KEGG website, these taxa could be:
+LOSS:
+Eubacterium_ruminantium > not found
+Ruminococcaceae UCG-013 > not found
+Ruminiclostridium-6 > not found
+Sutterella > 
+         sutt Sutterella megalosphaeroides 
+         sutk Sutterella sp. KGMB03119 
+Methanobrevibacter >  
+         mru  Methanobrevibacter ruminantium
+         msi  Methanobrevibacter smithii
+         meb  Methanobrevibacter sp. AbM4
+         mmil  Methanobrevibacter millerae
+         meye  Methanobrevibacter sp. YE315
+         mol  Methanobrevibacter olleyae
+
+GAIN:
+Ruminiclostridium-9 > not found
+Ruminobacter > not found
+
+```{r}
+
+bacteria_decreased_medium_urban <- read_tsv(here("Data","bacterial_changed_in_16s_results.tsv"))
+
+base_dir = here("Data","bello_functional_results","species_prokaryotes")
+
+s_seq <- s_bello %>%
+  left_join(preprocess, by = c("SampleID" = "Samples")) %>%
+  select(SampleID, nonhost)
+
+huge_bello_kegg <- read_table_if_no_rds_taxon_included(huge_bello_kegg, "huge_bello_kegg.rds", base_dir, s_seq)
+
+filtered_bello_kegg <- huge_bello_kegg %>%
+  filter(taxon %in% bacteria_decreased_medium_urban$kegg_genome_id)
+
+```
+
+## Linear model of KEGG Id's
+
+### Children
+
+```{r}
+
+props_to_test <- filtered_bello_kegg %>%
+  filter(!str_detect(geneID, ",")) %>%
+  select(SampleID, geneID, taxon, Abundance = count) 
+
+props_toTest <- props_to_test %>%
+  group_by(SampleID) %>%
+  summarise(x = sum(Abundance)) %>%
+  left_join(props_to_test, by="SampleID") %>%
+  mutate(props = Abundance / x) 
+
+props_filtered <- props_toTest %>%
+  group_by(geneID) %>%
+  summarise(mean_prop = mean(props)) %>%
+  filter(mean_prop > 0.0001) %>%
+  left_join(props_toTest, by = "geneID")
+
+props_filtered <- fix_zeros(props_filtered)
+
+s_toTest <- resetSampleSheet(s_bello)
+
+s_toTest %<>%
+  mutate(study_group = fct_relevel(study_group, "LowUrban")) %>%
+  mutate(age = as.numeric(age)) %>%
+  filter(age <= 18)
+
+form1 <- "props_logit ~ study_group"
+
+summaries_df <- props_filtered %>%
+    left_join(s_toTest, by = "SampleID") %>%
+    group_by(geneID, taxon) %>%
+    do(tidy_lm(lm(as.formula(form1), data=., na.action=na.omit))) %>%
+    setNames(c("geneID","taxon","term","Estimate","Std.Error","t.value","p.value")) %>%
+    ungroup() %>%
+    filter(term != '(Intercept)') %>%
+    group_by(term) %>%
+    mutate(fdr = p.adjust(p.value, method="BH")) %>%
+    ungroup() %>%
+    filter(p.value < 0.05) 
+
+summaries_df %>%
+  filter(fdr < 0.1) %>%
+  mutate(term = gsub("study_group","",term)) %>%
+  mutate(gene_by_taxon = paste(geneID, taxon)) %>%
+  mutate(gene_by_taxon = factor(gene_by_taxon, levels = gene_by_taxon[order(fdr)])) %>%
+  select(gene_by_taxon, everything()) %>% 
+  pander(split.table=Inf, digits=2, caption = "Children tribal members (age <= 18).\nLinear model fit by method of least-squares,\nReference level is LowUrban.\nFormula: logit(Abundance) ~ Medium/LowUrban.")
+
+```
+
+### Adults
+
+```{r}
+s_toTest <- resetSampleSheet(s_bello)
+
+s_toTest %<>%
+  mutate(study_group = fct_relevel(study_group, "LowUrban")) %>%
+  mutate(age = as.numeric(age)) %>%
+  filter(age > 18)
+
+form1 <- "props_logit ~ study_group"
+
+summaries_df <- props_filtered %>%
+    left_join(s_toTest, by = "SampleID") %>%
+    group_by(geneID, taxon) %>%
+    do(tidy_lm(lm(as.formula(form1), data=., na.action=na.omit))) %>%
+    setNames(c("geneID","taxon","term","Estimate","Std.Error","t.value","p.value")) %>%
+    ungroup() %>%
+    filter(term != '(Intercept)') %>%
+    group_by(term) %>%
+    mutate(fdr = p.adjust(p.value, method="BH")) %>%
+    ungroup() %>%
+    filter(p.value < 0.05) 
+
+summaries_df %>%
+  filter(fdr < 0.1) %>%
+  mutate(term = gsub("study_group","",term)) %>%
+  mutate(gene_by_taxon = paste(geneID, taxon)) %>%
+  mutate(gene_by_taxon = factor(gene_by_taxon, levels = gene_by_taxon[order(fdr)])) %>%
+  select(gene_by_taxon, everything()) %>% 
+  pander(split.table=Inf, digits=2, caption = "Adult tribal members (age <= 18).\nLinear model fit by method of least-squares,\nReference level is LowUrban.\nFormula: logit(Abundance) ~ Medium/LowUrban.")
+```
+
+
+# Western children
+
+```{r}
+heatmap_fp = "dynamic_pathway_abundance_per_sample.pdf"
+```
+
+Here, we show heatmaps and column charts of healthy children from North America. Heatmap is also attached separately as `r heatmap_fp`.
+
+```{r load dynamic}
+
+base_dir = here("Data","dynamic_functional_results","species_prokaryotes")
+
+s_seq <- other_md %>%
+  select(SampleID)
+
+dynamic_kegg <- read_table_if_no_rds(dynamic_kegg, "dynamic_kegg_counts.rds", base_dir, s_seq)
+
+# if (!file.exists(here("Data","dynamic_kegg_counts.rds"))) {
+#   dynamic_kegg <- read_gene_results_no_taxon_v2(base_dir,s_seq)
+#   write_rds(dynamic_kegg, here("Data","dynamic_kegg_counts.rds"))
+# }else{
+#   dynamic_kegg <- readr::read_rds(here("Data","dynamic_kegg_counts.rds"))
+# }
+
+#write_rds(other_md, here("Data","dynamic_healthy_metadata.rds"))
+
+```
+
+```{r heatmap dynamic}
+
+s_toPlot <- other_md
+
+ko <- dynamic_kegg %>%
+  select(Term = geneID, Count = sum_by_kegg_term, SampleID) %>%
+  spread_to_numeric_matrix(., "Term", "SampleID", "Count")
+
+dynamic_ko_to_path <- ko %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Ortholog") %>%
+  gather(key = "SampleID", value = "Prop", -Ortholog) %>%
+  filter(!str_detect(Ortholog, ",")) %>%
+  merge(prokarotic_paths, by = "Ortholog") %>%
+  mutate(prop_path = Prop * Weight) %>%
+  group_by(PathwayName, SampleID) %>%
+  summarise(x = sum(prop_path)) %>%
+  ungroup() %>%
+  spread_to_numeric_matrix(., "PathwayName", "SampleID", "x")
+
+dynamic_ko_to_path <- sweep(dynamic_ko_to_path, 2, colSums(dynamic_ko_to_path), "/")
+  
+top_path <- names(sort(rowMeans(dynamic_ko_to_path), decreasing = TRUE))[1:75]
+
+path_heatmap <- dynamic_ko_to_path[rownames(dynamic_ko_to_path) %in% top_path,]
+
+## group the SampleIDs
+grps <- c(color_by)
+s_toPlot %<>% arrange(study_group)
+#s_toPlot %>% arrange(list(!!! grps)) ##doesnt work!!!
+
+path_heatmap <- path_heatmap[, s_toPlot$SampleID]
+
+anno <- s_toPlot[,grps] %>% as.data.frame()
+rownames(anno) <- s_toPlot$SampleID
+colnames(anno) <- grps  
+
+pheatmap(
+  path_heatmap[,s_toPlot$SampleID],
+  annotation = anno,
+  color = saturated_rainbow(100, saturation_limit = max(path_heatmap)*2),
+  breaks = c(0, 1e-10, seq(0.001, max(path_heatmap)*2, length.out = 99)),
+  filename = here("Output",heatmap_fp),
+  clustering_distance_rows = "canberra",
+  cluster_cols = F,
+  cellwidth = 9, cellheight = 9, fontsize = 10)
+
+pheatmap(
+  path_heatmap[,s_toPlot$SampleID],
+  annotation = anno,
+  color = saturated_rainbow(100, saturation_limit = max(path_heatmap)*2),
+  breaks = c(0, 1e-10, seq(0.001, max(path_heatmap)*2, length.out = 99)),
+  clustering_distance_rows = "canberra",
+  cluster_cols = F,
+  cellwidth = 9, cellheight = 9, fontsize = 10)
+
+```
+
+```{r}
+colchart_fp = "western_children_top10_pathways_all_samples.pdf"
+```
+
+Column chart is also attached separtely as `r colchart_fp`.
+
+```{r top 10 dynamic}
+
+dynamic_ko_pathplot <- dynamic_ko_to_path %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Pathway") %>%
+  gather(key = "SampleID", value = "Prop", -Pathway) %>%
+  mutate(Pathway = fct_lump(Pathway, n = 11, w = .$Prop, other_level = "Other")) %>%
+  group_by(Pathway, SampleID) %>%
+  summarise(Prop = sum(Prop)) %>%
+  ungroup() %>%
+  group_by(SampleID) %>%
+  mutate(sort_prop = Prop[Pathway %in% "Other"]) %>%
+  ungroup() 
+
+dynamic_ko_pathplot %>%
+  mutate(SampleID = fct_reorder(SampleID, sort_prop)) %>%
+  
+  ggplot(aes(x = SampleID, y=Prop)) +
+    geom_col(aes(fill=Pathway))+ #,  position = position_fill()
+  theme_bw() +
+    theme( axis.text.x = element_blank(), strip.background = element_blank()) + #element_text(angle=45, vjust=1, hjust=1)
+    scale_color_brewer(palette = "Set2") +
+  labs( title = "Top 10 pathways across all Western children samples",
+        y="Proportion of Kegg Pathway counts",
+        x="")
+
+ggsave(here("Output",colchart_fp), width=7, height=5, useDingbats=F)
+
+```
+
+#Western Healthy Adults
+```{r}
+heatmap_fp = "Western_pathway_abundance_per_sample.pdf"
+```
+Here, we show heatmaps and column charts of healthy adults from North America. Heatmap is also attached separately as `r heatmap_fp`.
+
+```{r load healthy adults}
+
+base_dir = here("Data","ccm_functional_results","species_prokaryotes")
+
+Western_samples = read_csv(here("Data","ccm_samples.csv"), col_names = c("SampleID", "fwd_read", "rev_read"))
+
+s_seq <- Western_samples %>%
+  select(SampleID)
+
+Western_kegg <- read_table_if_no_rds(Western_kegg, "Western_kegg.rds", base_dir,s_seq)
+
+
+```
+
+
+```{r}
+
+s_toPlot <- Western_samples
+
+ko <- Western_kegg %>%
+  select(Term = geneID, Count = sum_by_kegg_term, SampleID) %>%
+  spread_to_numeric_matrix(., "Term", "SampleID", "Count")
+
+Western_ko_to_path <- ko %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Ortholog") %>%
+  gather(key = "SampleID", value = "Prop", -Ortholog) %>%
+  filter(!str_detect(Ortholog, ",")) %>%
+  merge(prokarotic_paths, by = "Ortholog") %>%
+  mutate(prop_path = Prop * Weight) %>%
+  group_by(PathwayName, SampleID) %>%
+  summarise(x = sum(prop_path)) %>%
+  ungroup() %>%
+  spread_to_numeric_matrix(., "PathwayName", "SampleID", "x")
+
+Western_ko_to_path <- sweep(Western_ko_to_path, 2, colSums(Western_ko_to_path), "/")
+  
+top_path <- names(sort(rowMeans(Western_ko_to_path), decreasing = TRUE))[1:75]
+
+path_heatmap <- Western_ko_to_path[rownames(Western_ko_to_path) %in% top_path,]
+
+## group the SampleIDs
+# grps <- c(color_by)
+# s_toPlot %<>% arrange(study_group)
+#s_toPlot %>% arrange(list(!!! grps)) ##doesnt work!!!
+
+path_heatmap <- path_heatmap[, s_toPlot$SampleID]
+
+# anno <- s_toPlot[,grps] %>% as.data.frame()
+# rownames(anno) <- s_toPlot$SampleID
+# colnames(anno) <- grps  
+
+pheatmap(
+  path_heatmap[,s_toPlot$SampleID],
+  #annotation = anno,
+  color = saturated_rainbow(100, saturation_limit = max(path_heatmap)*2),
+  breaks = c(0, 1e-10, seq(0.001, max(path_heatmap)*2, length.out = 99)),
+  filename = here("Output",heatmap_fp),
+  clustering_distance_rows = "canberra",
+  cluster_cols = F,
+  cellwidth = 9, cellheight = 9, fontsize = 10)
+
+pheatmap(
+  path_heatmap[,s_toPlot$SampleID],
+  #annotation = anno,
+  color = saturated_rainbow(100, saturation_limit = max(path_heatmap)*2),
+  breaks = c(0, 1e-10, seq(0.001, max(path_heatmap)*2, length.out = 99)),
+  clustering_distance_rows = "canberra",
+  cluster_cols = F,
+  cellwidth = 9, cellheight = 9, fontsize = 10)
+
+```
+
+```{r}
+colchart_fp = "western_adults_top10_pathways_all_samples.pdf"
+```
+
+Column chart is also attached separtely as `r colchart_fp`.
+
+```{r}
+
+Western_ko_pathplot <- Western_ko_to_path %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Pathway") %>%
+  gather(key = "SampleID", value = "Prop", -Pathway) %>%
+  mutate(Pathway = fct_lump(Pathway, n = 11, w = .$Prop, other_level = "Other")) %>%
+  group_by(Pathway, SampleID) %>%
+  summarise(Prop = sum(Prop)) %>%
+  ungroup() %>%
+  group_by(SampleID) %>%
+  mutate(sort_prop = Prop[Pathway %in% "Other"]) %>%
+  ungroup() 
+
+Western_ko_pathplot %>%
+  mutate(SampleID = fct_reorder(SampleID, sort_prop)) %>%
+  
+  ggplot(aes(x = SampleID, y=Prop)) +
+    geom_col(aes(fill=Pathway))+ #,  position = position_fill()
+  theme_bw() +
+    theme( axis.text.x = element_blank(), strip.background = element_blank()) + #element_text(angle=45, vjust=1, hjust=1)
+    scale_color_brewer(palette = "Set2") +
+  labs( title = "Top 10 pathways across all Western adult samples",
+        y="Proportion of Kegg Pathway counts",
+        x="")
+
+ggsave(here("Output",colchart_fp), width=7, height=5, useDingbats=F)
+
+```
+
+# Comparing children to children and adults to adults
+
+```{r metadata}
+
+Western_md <- readr::read_tsv(here("Data","COMBO_info_forShen.txt")) %>%
+  mutate(OriginalSampleID = SampleID) %>%
+  mutate(SampleID = str_replace(PatientID, "^PCMP_", "")) %>%
+  right_join(Western_samples, by = "SampleID") %>%
+  mutate(sex = as.factor(Sex)) %>%
+  select(sex, age = Age, everything(), -Sex) %>%
+  mutate(study = "Western Healthy adults")
+  
+
+#Western_md %>% select(age, sex) %>% summary() %>% pander()
+
+#we have to fix the dynamic sample names because *OF COURSE* they got changed at some point
+fix_dynamic_names <- read_tsv(here("SampleID_mapping.txt"))
+
+dynamic_md2 <- dynamic_md %>%
+  left_join(fix_dynamic_names, by = c("SampleID" = "SampleID_yue")) %>%
+  mutate(SampleID = tmp_sample)
+
+# all_md_4 <- s_bello %>%
+#   bind_rows(dynamic_md2) %>%
+#   bind_rows(Western_md) %>%
+#   mutate(age = as.numeric(age)) %>%
+#   mutate(age_class = case_when((age > 18) ~ "Age > 18 yrs",
+#                                (age < 5) ~ "Age < 5 yrs",
+#                                (age >= 5 & age <= 18) ~ "5 yrs <= Age <= 18 yrs",
+#                               str_detect(SampleID, '(?i)(lessthan5)') ~ "Age < 5 yrs",
+#                               str_detect(SampleID, '(?i)(greaterthan5)') ~ "5 yrs <= Age <= 18 yrs",
+#                               (study_group %in% c("Healthy over 5")) ~ "5 yrs <= Age <= 18 yrs",
+#                               (study_group %in% c("Healthy under 5")) ~ "Age < 5 yrs")) %>%
+#   mutate(study_by_age = paste0(study, " ", age_class)) %>%
+#   mutate(age_class = as.factor(age_class), study_by_age = as.factor(study_by_age))
+
+# unique(all_md_4$age_class)  
+  
+
+```
+
+## Sub-setting western children
+
+Since there are many more western children samples than amerindian we will subset the western dataset. We will do this by the following method: ~~for each age in the amerindian dataset, we will randomly select 3 samples from the same age in the western dataset.~~ sample the exact number of children per age in amerindian dataset (e.g. there are two one-year-olds in amerindian so sample 2 one-year-olds from western). The only exception to this is the case where there are less children in the western dataset than there are amerindian for a given age, in the case we will take all of the western children of that age. 
+
+```{r include=FALSE}
+
+bello_ages <- subset(s_bello$age, s_bello$age <= 18)
+
+bello_children <- s_bello %>% filter(age <= 18) %>% count(age)
+
+# dynamic_md3 <- dynamic_md2 %>%
+#   mutate(age = round(age)) %>%
+#   filter(age %in% bello_ages) %>%
+#   group_by(age) %>%
+#   slice(1:3) %>%
+#   ungroup()
+
+#a different way
+#sampling the exact number of children per age in amerindian dataset (e.g. there are two one-year-olds in Amerindian so get 2 one-year-olds from western)
+#the sampling should be locked so we don't keep getting different answers
+if (!file.exists(here("Data","dynamic_subset_for_2016_data.RDS"))) {
+  dynamic_md3 <- tibble()
+  
+  for (i in bello_children$age) {
+    
+    #print(i)
+    
+    n <- bello_children %>% filter(age == i) %>% pull(n)
+    
+    dynamic_temp <- dynamic_md2 %>%
+      mutate(age = round(age)) %>%
+      filter(age %in% i)
+    
+    dynamic_temp %<>%
+      sample_n(min(c(dim(dynamic_temp)[1], n)))
+    
+    dynamic_md3 <- bind_rows(dynamic_temp, dynamic_md3)
+    
+  }
+  
+  write_rds(dynamic_md3, here("Data","dynamic_subset_for_2016_data.RDS"))
+  
+} else {
+  dynamic_md3 <- read_rds(here("Data","dynamic_subset_for_2016_data.RDS"))
+}
+  
+all_md_4 <- s_bello %>%
+  bind_rows(dynamic_md3) %>%
+  bind_rows(Western_md) %>%
+  mutate(age = as.numeric(age)) %>%
+  mutate(age_class = case_when((age > 18) ~ "Age > 18 yrs",
+                               (age < 5) ~ "Age < 5 yrs",
+                               (age >= 5 & age <= 18) ~ "5 yrs <= Age <= 18 yrs",
+                              str_detect(SampleID, '(?i)(lessthan5)') ~ "Age < 5 yrs",
+                              str_detect(SampleID, '(?i)(greaterthan5)') ~ "5 yrs <= Age <= 18 yrs",
+                              (study_group %in% c("Healthy over 5")) ~ "5 yrs <= Age <= 18 yrs",
+                              (study_group %in% c("Healthy under 5")) ~ "Age < 5 yrs")) %>%
+  mutate(study_by_age = paste0(study, " ", age_class)) %>%
+  mutate(age_class = as.factor(age_class), study_by_age = as.factor(study_by_age))
+
+```
+
+### New age distribution
+
+Now that we have subsetted, let's see the new distributions:
+
+```{r}
+
+my_plot <- all_md_4 %>%
+  filter(age_class %in% c("Age < 5 yrs","5 yrs <= Age <= 18 yrs")) %>%
+ggplot(.) +
+ aes(x = age, fill = study) +
+ geom_histogram(bins = 30L) +
+ theme_minimal() +
+ facet_wrap(vars(study))
+
+plot(my_plot)
+
+my_plot <- all_md_4 %>%
+  filter(age_class %in% c("Age < 5 yrs","5 yrs <= Age <= 18 yrs")) %>%
+ggplot(.) +
+ aes(x = age, fill = study) +
+ geom_density(adjust = 1L) +
+ theme_minimal() +
+ facet_wrap(vars(study))
+
+plot(my_plot)
+
+```
+
+
+# Amerindian children and western children
+
+```{r}
+
+colchart_fp = "top10_pathways_children_samples.pdf"
+
+```
+
+Here, we see the top 10 pathways compared for Amerindian and Western children. See attached column chart `r colchart_fp`.
+
+```{r comparison1}
+
+all_children <- bello_ko_pathplot %>%
+  bind_rows(dynamic_ko_pathplot) %>%
+  left_join(all_md_4, by = "SampleID") %>%
+  filter(age_class %in% c("Age < 5 yrs","5 yrs <= Age <= 18 yrs"))
+
+all_children %>%
+  mutate(SampleID = fct_reorder(SampleID, sort_prop)) %>%
+  mutate(study_by_age_label = paste(study, age_class, sep = "\n")) %>%
+
+  ggplot(aes(x = SampleID, y=Prop)) +
+    geom_col(aes(fill=Pathway))+ #,  position = position_fill()
+  theme_bw() +
+    theme( axis.text.x = element_blank(), strip.background = element_blank()) + #element_text(angle=45, vjust=1, hjust=1)
+    scale_color_brewer(palette = "Set2") +
+  facet_grid(~study_by_age_label, scales = "free", space = "free") +
+  theme(strip.text.x=element_text(angle=90, hjust= .1)) +
+  labs( title = "Top 10 pathways across all children samples",
+        y="Proportion of Kegg Pathway counts",
+        x="")
+
+ggsave(here("Output",colchart_fp), width=12, height=5, useDingbats=F)
+
+
+```
+
+### Bray-curtis PCoA
+
+```{r}
+color_by = "study"
+shape_by = "age_class"
+```
+
+Let's also view this comparison as a PCoA graph.
+
+```{r Fig5B children}
+
+s_toPlot <- all_md_4 %>%
+  filter(age_class %in% c("Age < 5 yrs","5 yrs <= Age <= 18 yrs"))
+
+ko_children <- bello_kegg %>%
+  bind_rows(dynamic_kegg) %>%
+  select(Term = geneID, Count = sum_by_kegg_term, SampleID) %>%
+  spread_to_numeric_matrix(., "Term", "SampleID", "Count")
+
+bc_kegg <- vegdist(t(ko_children))
+
+dist_in <- usedist::dist_subset(bc_kegg, s_toPlot$SampleID)
+
+make_pcoa_plot_with_closed_and_open_circles_for_points(dist_in, s_toPlot, color_by=color_by, shape_by=shape_by)
+
+figure_plot <- make_pcoa_plot(dist_in, s_toPlot, color_by = color_by, shape_by = NULL) +
+  labs(title = "Children", color = "Culture") +
+  scale_color_brewer(palette = "Set2")
+
+ggsave(filename = here("Output","Fig5B_children.pdf"), plot = figure_plot, width = 4, height = 3, useDingbats= F)
+
+#what are those two weird ones?
+# pc <- pcoa(dist_in)
+# pc_df <- merge(s_toPlot, pc$vectors[, 1:3], by.x="SampleID", by.y="row.names")
+# pc_df %>% filter(Axis.2 < -.5) %>% select(SampleID, age)
+# SampleID age
+# s083.Healthy.lessthan5.Feces.Baseline 1.909589			
+# s51.Healthy.lessthan5.Feces.Week.4 3.747945	
+  
+```
+
+### Permanova of amerindian children to western children (bray-curtis)
+
+Again, we run Permanova on the centers of the dispersions. We also compare the dispersions (spread) of the distances for each group.
+
+```{r}
+
+adtable <- adonis(dist_in ~ s_toPlot$study)
+
+as.data.frame(adtable$aov.tab) %>%
+pander(split.table=Inf, digits=2, caption = "Permanova for differences in culture / geography")
+
+betatable <- betadisper(dist_in, s_toPlot$study)
+
+betatable
+
+```
+
+### Jaccard PCoA
+
+Here, we compare dissimilartiy of species presence / absence.
+
+```{r}
+
+jaccard_kegg <- vegdist(t(ko_children), binary = T)
+
+dist_in <- usedist::dist_subset(jaccard_kegg, s_toPlot$SampleID)
+
+make_pcoa_plot_with_closed_and_open_circles_for_points(dist_in, s_toPlot, color_by=color_by, shape_by=shape_by)
+
+```
+
+
+
+## Linear models
+
+```{r}
+number_of_tests=100
+```
+
+Here, we will construct similar linear models as before, but here the pathway abundances will be tested for changes based on whether the participant is Western or Amerindian. This will be done on the top `r number_of_tests` pathways.
+
+```{r lm children comparison}
+
+temp1 <- dynamic_ko_to_path %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Pathway") %>%
+  gather(key = "SampleID", value = "Prop", -Pathway)
+
+paths_to_test <- bello_ko_to_path %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Pathway") %>%
+  gather(key = "SampleID", value = "Prop", -Pathway) %>%
+  bind_rows(temp1) %>%
+  mutate(Pathway = fct_lump(Pathway, n = number_of_tests+1, w = .$Prop, other_level = "Other")) %>%
+  filter(!Pathway %in% "Other") %>%
+  filter(SampleID %in% (all_md_4 %>% filter(age_class %in% c("Age < 5 yrs","5 yrs <= Age <= 18 yrs")) %>% pull(SampleID))) %>%
+  pivot_wider(names_from = SampleID, values_from = Prop) %>%
+  column_to_rownames(var = "Pathway")
+  #pivot_to_numeric_matrix(obs_col = Pathway, feature_col = SampleID, value_col = Prop)
+
+study_func_tests <- function() {
+
+s_toTest <- all_md_4 %>%
+  filter(age_class %in% c("Age < 5 yrs","5 yrs <= Age <= 18 yrs")) %>%
+  mutate(study = as.factor(study))
+
+form1 <- "props_logit ~ study"
+props_toTest <- paths_to_test[,s_toTest$SampleID]
+
+summaries_df <- run_lm_kegg(props_toTest, s_toTest, form1, 0.05)
+
+return(summaries_df)
+}
+
+study_func_tests() %>%
+  mutate(term = gsub("study","",term)) %>%
+  pander(split.table=Inf, digits=2, caption = "Children from Western and South american tribes (age <= 18).\nLinear model fit by method of least-squares,\nReference level is Amerindian\nFormula: logit(Abundance) ~ study.")
+
+rm(temp1)
+```
+
+Here, we will graph the top 10 pathway differences by FDR value.
+
+```{r graph1, fig.height=8, fig.width=12}
+
+s_toTest <- all_md_4 %>%
+  filter(age_class %in% c("Age < 5 yrs","5 yrs <= Age <= 18 yrs")) %>%
+  mutate(study = as.factor(study))
+
+to_select <- study_func_tests() %>%
+  filter(fdr < 0.05) %>%
+  arrange(fdr) %>%
+  select(Pathway) %>%
+  unique %>%
+  slice(seq(10))
+
+paths_to_test[to_select$Pathway, s_toTest$SampleID] %>%
+  rownames_to_column(var = "Pathway") %>%
+  gather(key = "SampleID", value = "props", -Pathway) %>%
+  mutate(props = props+1E-6) %>%
+  merge(s_toTest, by="SampleID") %>%
+  
+  mutate(Pathway = sub(" ", "\n", Pathway)) %>%
+  mutate(Pathway = reorder(Pathway, -props)) %>%
+  ggplot(aes(x=study, y=props, color=study)) + 
+    #geom_boxplot(outlier.alpha = 0) +
+    geom_quasirandom(dodge.width = 0.75) +
+    #geom_point() +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(angle=45, vjust=1, hjust=1),
+      strip.background = element_blank()) +
+    #scale_color_manual(values=brewer.pal(8, "Set1")[c(2,5,1)]) +
+    scale_color_brewer(palette = "Set2") +
+    scale_y_continuous(trans = "logit") +
+    facet_wrap(~Pathway, scales="free_y", ncol=3) +
+    labs(x="Study", color="Study",
+         shape="",
+         y="Logit transformed abundance", 
+         title = "Pathway abundances by study")
+
+```
+
+\newpage
+
+Additionally, here is a graph showing those top 100 pathways and their changes in logit-transformed abundance:
+
+```{r pathway fdr comparison children, fig.height=10, fig.width=8}
+
+summaries_df <- study_func_tests() %>%
+  mutate(term = gsub("study_group","",term)) %>%
+  mutate(CI95_lwr = round(Estimate - 1.96*Std.Error, 2)) %>%
+  mutate(CI95_upr = round(Estimate + 1.96*Std.Error, 2)) %>%
+  mutate(FDR_cat = case_when(fdr < 0.01 ~ "p.adj < 0.01",
+                              fdr >= 0.01 & fdr < 0.02 ~ "0.01 <= p.adj < 0.02",
+                              fdr >= 0.02 & fdr < 0.03 ~ "0.02 <= p.adj < 0.03",
+                              fdr >= 0.03 & fdr < 0.04 ~ "0.03 <= p.adj < 0.04",
+                              fdr >= 0.04 & fdr < 0.05 ~ "0.04 <= p.adj < 0.05",
+                              fdr > 0.05 ~ "NS")) %>%
+  arrange(Estimate) %>%
+  mutate(Pathway = factor(Pathway, levels = Pathway[order(Estimate)]))
+
+g <- ggplot(summaries_df, aes(Estimate, Pathway, color = FDR_cat)) +
+  geom_point() +
+  geom_vline(xintercept = 0, linetype = "longdash") +
+  geom_errorbarh(aes(xmax = CI95_upr, xmin = CI95_lwr)) + 
+  theme(axis.text.y = element_text(size = 6),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6)) + 
+  labs(title = "Western children compared to amerindian",
+       subtitle = "Larger values equal greater gene abundance in Western microbiomes",
+       x = "Difference in logit-transformed KEGG pathway abundance",
+       color = "FDR adjusted\np-value") 
+plot(g)
+
+ggsave(plot = g, filename = here("Output","changes_in_abundance_all_children.pdf"), device = "pdf")
+
+children_pathway_changes <- summaries_df
+
+```
+
+### beta-lactam pathway
+
+The beta-lactam pathway is of interest because it relates to bacterial antibiotic resistance. Due to the exposure of we see more antibiotic resistance gene abundance in Western microbiomes and this is exactly what the data shows. Let us run this same linear model but on the individual genes in the pathway.
+
+```{r}
+s_toTest <- all_md_4 %>%
+  filter(age_class %in% c("Age < 5 yrs","5 yrs <= Age <= 18 yrs")) %>%
+  mutate(study = as.factor(study))
+
+ko_to_test <- bind_rows(dynamic_kegg, bello_kegg) %>%
+  filter(!str_detect(geneID, ",")) %>%
+  pivot_wider(id_cols = SampleID, names_from = geneID, values_from = sum_by_kegg_term, values_fill = list(sum_by_kegg_term = 0)) %>%
+  pivot_longer(-SampleID, names_to = "Ortholog", values_to = "Abundance") %>%
+  inner_join((prokarotic_paths %>% filter(PathwayName %in% "beta-Lactam resistance")), by = "Ortholog") %>%
+  select(SampleID, Ortholog, Abundance, PathwayName) 
+
+sum_of_counts <- bind_rows(dynamic_kegg, bello_kegg) %>%
+  group_by(SampleID) %>%
+  summarize(sample_sums = sum(sum_by_kegg_term))
+
+props_toTest <- ko_to_test %>%
+  left_join(sum_of_counts, by = "SampleID") %>%
+  mutate(props = Abundance / sample_sums) 
+
+props_toTest <- fix_zeros(props_toTest) %>%
+  mutate(props_logit = log(props / (1 - props)))
+
+form1 <- "props_logit ~ study"
+
+summaries_df <- run_lm_on_props(factor_to_test = "Ortholog", props_toTest, s_toTest, form1, 0.05) 
+
+top_ko_desc <- tibble(Ortholog = summaries_df$Ortholog, Definition = "")
+
+if (file.exists(here("Data","beta lactam genes changed in children.rds"))) {
+  top_ko_desc <- read_rds(here("Data","beta lactam genes changed in children.rds"))
+} else {
+    for(i in summaries_df$Ortholog) {
+
+    top_ko_desc %<>%
+    mutate(Definition = if_else(summaries_df$Ortholog == i, keggGet(i)[[1]]$DEFINITION, Definition))
+    }
+  write_rds(top_ko_desc, here("Data","beta lactam genes changed in children.rds"))
+}
+
+children_beta_lactam_changes <- summaries_df %>%
+  mutate(term = gsub("study","",term)) %>%
+  left_join(top_ko_desc, by = "Ortholog") %>%
+  arrange(desc(Estimate)) %>%
+  mutate(Ortholog = factor(Ortholog, levels = Ortholog[order(desc(Estimate))])) %>%
+  mutate(age_cat = "Children")
+
+children_beta_lactam_changes %>%
+  pander(split.table=Inf, digits=2, caption = "Children from Western and South american tribes (age <= 18).\nLinear model fit by method of least-squares,\nReference level is Amerindian.\nFormula: logit(Abundance) ~ study.")
+  
+```
+
+Let's see what that looks like in our p-value graph.
+
+```{r bbbb}
+for_plot <- children_beta_lactam_changes %>% 
+  mutate(CI95_lwr = round(Estimate - 1.96*Std.Error, 2)) %>%
+  mutate(CI95_upr = round(Estimate + 1.96*Std.Error, 2)) %>%
+  mutate(FDR_cat = case_when(fdr < 0.01 ~ "p.adj < 0.01",
+                              fdr >= 0.01 & fdr < 0.02 ~ "0.01 <= p.adj < 0.02",
+                              fdr >= 0.02 & fdr < 0.03 ~ "0.02 <= p.adj < 0.03",
+                              fdr >= 0.03 & fdr < 0.04 ~ "0.03 <= p.adj < 0.04",
+                              fdr >= 0.04 & fdr < 0.05 ~ "0.04 <= p.adj < 0.05",
+                              fdr > 0.05 ~ "NS")) %>%
+  arrange(Estimate) %>%
+  mutate(Ortholog = factor(Ortholog, levels = Ortholog[order(Estimate)])) %>% 
+  mutate(ortho_def = paste(Ortholog, str_trunc(Definition, width = 20, side = "right"))) %>%
+  mutate(ortho_def = factor(ortho_def, levels = ortho_def[order(Estimate)]))
+
+g <- ggplot(for_plot, aes(Estimate, Ortholog, color = FDR_cat)) +
+  geom_point() +
+  geom_vline(xintercept = 0, linetype = "longdash") +
+  geom_errorbarh(aes(xmax = CI95_upr, xmin = CI95_lwr)) + 
+  theme(axis.text.y = element_text(size = 6),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6)) + 
+  labs(title = "Western children compared to amerindian",
+       subtitle = "Larger values equal greater gene abundance in Western microbiomes",
+       x = "Difference in logit-transformed KEGG ortholog abundance",
+       color = "FDR adjusted\np-value")
+
+plot(g)
+
+ggsave(plot = g, filename = here("Output","changes_in_beta_lactam_kegg_terms_all_children.pdf"), device = "pdf")
+
+#and with Descriptions
+g <- ggplot(for_plot, aes(Estimate, ortho_def, color = FDR_cat)) +
+  geom_point() +
+  geom_vline(xintercept = 0, linetype = "longdash") +
+  geom_errorbarh(aes(xmax = CI95_upr, xmin = CI95_lwr)) + 
+  theme(axis.text.y = element_text(size = 6),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6)) + 
+  labs(title = "Western children compared to amerindian",
+       subtitle = "Larger values equal greater gene abundance in Western microbiomes",
+       x = "Difference in logit-transformed KEGG ortholog abundance",
+       color = "FDR adjusted\np-value",
+       y = "KEGG ortholog and partial definition")
+
+plot(g)
+
+beta_lactam_children_plot_data <- for_plot
+
+```
+
+
+
+
+# Amerindian adults and western adults
+
+## Age distributions
+
+Before we compare we should also see the age distributions like we did with the children.
+
+```{r}
+
+all_adults <- bello_ko_pathplot %>%
+  bind_rows(Western_ko_pathplot) %>%
+  left_join(all_md_4, by = "SampleID") %>%
+  filter(age_class %in% c("Age > 18 yrs"))
+
+# library(esquisse)
+# 
+# esquisser(all_adults)
+
+ggplot(all_adults) +
+ aes(x = age, fill = study) +
+ geom_histogram(bins = 30L) +
+ theme_minimal() +
+ facet_wrap(vars(study))
+
+ggplot(all_adults) +
+ aes(x = age, fill = study) +
+ geom_density(adjust = 1L) +
+ theme_minimal() +
+ facet_wrap(vars(study))
+
+```
+
+
+```{r}
+colchart_fp="top10_pathways_adult_samples.pdf"
+```
+
+Here, we see the top 10 pathways compared for Amerindian and Western adults. See attached column chart `r colchart_fp`.
+
+```{r comparison2}
+
+all_adults %>%
+  mutate(SampleID = fct_reorder(SampleID, sort_prop)) %>%
+  filter(study %in% c("Amerindian", "Western Healthy adults") & age_class %in% c("Age > 18 yrs")) %>%
+mutate(study_by_age_label = paste(study, age_class, sep = "\n")) %>%
+
+  ggplot(aes(x = SampleID, y=Prop)) +
+    geom_col(aes(fill=Pathway))+ #,  position = position_fill()
+  theme_bw() +
+    theme( axis.text.x = element_blank(), strip.background = element_blank()) + #element_text(angle=45, vjust=1, hjust=1)
+    scale_color_brewer(palette = "Set2") +
+  facet_grid(~study_by_age_label, scales = "free", space = "free") +
+  #theme(strip.text.x=element_text(angle=90, hjust= .1)) +
+  labs( title = "Amerindian adults and western adults",
+        y="Proportion of Kegg Pathway counts",
+        x="")
+
+ggsave(here("Output",colchart_fp), width=12, height=5, useDingbats=F)
+
+```
+
+### Bray-curtis PCoA
+
+```{r}
+color_by = "study"
+shape_by = "age_class"
+```
+
+Let's also view this comparison as a PCoA graph.
+
+```{r Fig5B adults}
+
+s_toPlot <- all_md_4 %>%
+  filter(age_class %in% c("Age > 18 yrs")) %>%
+  mutate(study = if_else(study %in% "Western Healthy adults", "Western", study))
+
+ko_adults <- bello_kegg %>%
+  bind_rows(Western_kegg) %>%
+  select(Term = geneID, Count = sum_by_kegg_term, SampleID) %>%
+  spread_to_numeric_matrix(., "Term", "SampleID", "Count")
+
+bc_kegg <- vegdist(t(ko_adults))
+
+dist_in <- usedist::dist_subset(bc_kegg, s_toPlot$SampleID)
+
+make_pcoa_plot_with_closed_and_open_circles_for_points(dist_in, s_toPlot, color_by=color_by, shape_by=shape_by)
+
+figure_plot <- make_pcoa_plot(dist_in, s_toPlot, color_by = color_by, shape_by = NULL) +
+  labs(title = "Adults", color = "Culture") +
+  scale_color_brewer(palette = "Set2")
+
+ggsave(filename = here("Output","Fig5B_adults.pdf"), plot = figure_plot, width = 4, height = 3, useDingbats= F)
+
+```
+
+### Permanova of western adults to amerindian adults (bray-curtis)
+
+Again, we run Permanova on the centers of the dispersions. We also compare the dispersions (spread) of the distances for each group.
+
+```{r}
+
+adtable <- adonis(dist_in ~ s_toPlot$study)
+
+as.data.frame(adtable$aov.tab) %>%
+pander(split.table=Inf, digits=2, caption = "Permanova for differences in culture / geography")
+
+betatable <- betadisper(dist_in, s_toPlot$study)
+
+betatable
+
+```
+
+### Jaccard PCoA
+
+Here, we compare dissimilartiy of species presence / absence.
+
+```{r}
+
+jaccard_kegg <- vegdist(t(ko_adults), binary = T)
+
+dist_in <- usedist::dist_subset(jaccard_kegg, s_toPlot$SampleID)
+
+make_pcoa_plot_with_closed_and_open_circles_for_points(dist_in, s_toPlot, color_by=color_by, shape_by=shape_by)
+
+```
+
+
+
+## Linear models
+
+Again, as with children, we will test for changes in KEGG pathway abundance.
+
+```{r}
+number_of_tests=100
+```
+
+
+```{r lm adults comparison}
+
+temp1 <- Western_ko_to_path %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Pathway") %>%
+  gather(key = "SampleID", value = "Prop", -Pathway)
+
+paths_to_test <- bello_ko_to_path %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Pathway") %>%
+  gather(key = "SampleID", value = "Prop", -Pathway) %>%
+  bind_rows(temp1) %>%
+  mutate(Pathway = fct_lump(Pathway, n = number_of_tests+1, w = .$Prop, other_level = "Other")) %>%
+  filter(!Pathway %in% "Other") %>%
+  filter(SampleID %in% (all_md_4 %>% filter(age_class %in% c("Age > 18 yrs")) %>% pull(SampleID))) %>%
+  pivot_wider(names_from = SampleID, values_from = Prop) %>%
+  column_to_rownames(var = "Pathway")
+  #pivot_to_numeric_matrix(obs_col = Pathway, feature_col = SampleID, value_col = Prop)
+
+study_func_tests <- function() {
+
+s_toTest <- all_md_4 %>%
+  filter(age_class %in% c("Age > 18 yrs")) %>%
+  mutate(study = as.factor(study))
+
+form1 <- "props_logit ~ study"
+props_toTest <- paths_to_test[,s_toTest$SampleID]
+
+summaries_df <- run_lm_kegg(props_toTest, s_toTest, form1, 0.05)
+
+return(summaries_df)
+}
+
+study_func_tests() %>%
+  mutate(term = gsub("study","",term)) %>%
+  pander(split.table=Inf, digits=2, caption = "Adults from Western and South american tribes (age <= 18).\nLinear model fit by method of least-squares,\nReference level is Amerindian\nFormula: logit(Abundance) ~ study.")
+
+rm(temp1)
+```
+
+Here, we will graph the top 10 pathway differences by FDR value.
+
+```{r graph2, fig.height=8, fig.width=12}
+
+s_toTest <- all_md_4 %>%
+  filter(age_class %in% c("Age > 18 yrs")) %>%
+  mutate(study = as.factor(study))
+
+to_select <- study_func_tests() %>%
+  filter(fdr < 0.05) %>%
+  arrange(fdr) %>%
+  select(Pathway) %>%
+  unique %>%
+  slice(seq(10))
+
+paths_to_test[to_select$Pathway, s_toTest$SampleID] %>%
+  rownames_to_column(var = "Pathway") %>%
+  gather(key = "SampleID", value = "props", -Pathway) %>%
+  mutate(props = props+1E-6) %>%
+  merge(s_toTest, by="SampleID") %>%
+  
+  mutate(Pathway = sub(" ", "\n", Pathway)) %>%
+  mutate(Pathway = reorder(Pathway, -props)) %>%
+  ggplot(aes(x=study, y=props, color=study)) + 
+    #geom_boxplot(outlier.alpha = 0) +
+    geom_quasirandom(dodge.width = 0.75) +
+    #geom_point() +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(angle=45, vjust=1, hjust=1),
+      strip.background = element_blank()) +
+    #scale_color_manual(values=brewer.pal(8, "Set1")[c(2,5,1)]) +
+    scale_color_brewer(palette = "Set2") +
+    scale_y_continuous(trans = "logit") +
+    facet_wrap(~Pathway, scales="free_y", ncol=3) +
+    labs(x="Study", color="Study",
+         shape="",
+         y="Logit transformed abundance", 
+         title = "Pathway abundances by study")
+
+```
+
+\newpage
+
+Additionally, here is a graph showing those top 100 pathways and their changes in logit-transformed abundance:
+
+```{r pathway fdr comparison adults, fig.height=10, fig.width=8}
+
+summaries_df <- study_func_tests() %>%
+  mutate(term = gsub("study_group","",term)) %>%
+  mutate(CI95_lwr = round(Estimate - 1.96*Std.Error, 2)) %>%
+  mutate(CI95_upr = round(Estimate + 1.96*Std.Error, 2)) %>%
+  mutate(FDR_cat = case_when(fdr < 0.01 ~ "p.adj < 0.01",
+                              fdr >= 0.01 & fdr < 0.02 ~ "0.01 <= p.adj < 0.02",
+                              fdr >= 0.02 & fdr < 0.03 ~ "0.02 <= p.adj < 0.03",
+                              fdr >= 0.03 & fdr < 0.04 ~ "0.03 <= p.adj < 0.04",
+                              fdr >= 0.04 & fdr < 0.05 ~ "0.04 <= p.adj < 0.05",
+                              fdr > 0.05 ~ "NS")) %>%
+  arrange(Estimate) %>%
+  mutate(Pathway = factor(Pathway, levels = Pathway[order(Estimate)]))
+
+g <- ggplot(summaries_df, aes(Estimate, Pathway, color = FDR_cat)) +
+  geom_point() +
+  geom_vline(xintercept = 0, linetype = "longdash") +
+  geom_errorbarh(aes(xmax = CI95_upr, xmin = CI95_lwr)) + 
+  theme(axis.text.y = element_text(size = 6),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6)) + 
+  labs(title = "Western adults compared to amerindian",
+       subtitle = "Larger values equal greater gene abundance in Western microbiomes",
+       x = "Difference in logit-transformed KEGG pathway abundance",
+       color = "FDR adjusted\np-value") 
+plot(g)
+
+ggsave(plot = g, filename = here("Output","changes_in_abundance_adults.pdf"), device = "pdf")
+
+adult_pathway_changes <- summaries_df
+
+```
+
+### beta-lactam pathway
+
+The beta-lactam pathway is of interest because it relates to bacterial antibiotic resistance. Due to the exposure of we see more antibiotic resistance gene abundance in Western microbiomes and this is exactly what the data shows. Let us run this same linear model but on the individual genes in the pathway.
+
+```{r}
+s_toTest <- all_md_4 %>%
+  filter(age_class %in% c("Age > 18 yrs")) %>%
+  mutate(study = as.factor(study))
+
+ko_to_test <- bind_rows(Western_kegg, bello_kegg) %>%
+  filter(!str_detect(geneID, ",")) %>%
+  pivot_wider(id_cols = SampleID, names_from = geneID, values_from = sum_by_kegg_term, values_fill = list(sum_by_kegg_term = 0)) %>%
+  pivot_longer(-SampleID, names_to = "Ortholog", values_to = "Abundance") %>%
+  inner_join((prokarotic_paths %>% filter(PathwayName %in% "beta-Lactam resistance")), by = "Ortholog") %>%
+  select(SampleID, Ortholog, Abundance, PathwayName) 
+
+sum_of_counts <- bind_rows(Western_kegg, bello_kegg) %>%
+  group_by(SampleID) %>%
+  summarize(sample_sums = sum(sum_by_kegg_term))
+
+props_toTest <- ko_to_test %>%
+  left_join(sum_of_counts, by = "SampleID") %>%
+  mutate(props = Abundance / sample_sums) 
+
+props_toTest <- fix_zeros(props_toTest) %>%
+  mutate(props_logit = log(props / (1 - props)))
+
+form1 <- "props_logit ~ study"
+
+summaries_df <- run_lm_on_props(factor_to_test = "Ortholog", props_toTest, s_toTest, form1, 0.05) 
+
+top_ko_desc <- tibble(Ortholog = summaries_df$Ortholog, Definition = "")
+
+if (file.exists(here("Data","beta lactam genes changed in adults.rds"))) {
+  top_ko_desc <- read_rds(here("Data","beta lactam genes changed in adults.rds"))
+} else {
+    for(i in summaries_df$Ortholog) {
+
+    top_ko_desc %<>%
+    mutate(Definition = if_else(summaries_df$Ortholog == i, keggGet(i)[[1]]$DEFINITION, Definition))
+    }
+  write_rds(top_ko_desc, here("Data","beta lactam genes changed in adults.rds"))
+}
+
+adult_beta_lactam_changes <- summaries_df %>%
+  mutate(term = gsub("study","",term)) %>%
+  left_join(top_ko_desc, by = "Ortholog") %>%
+  arrange(desc(Estimate)) %>%
+  mutate(Ortholog = factor(Ortholog, levels = Ortholog[order(desc(Estimate))])) %>%
+  mutate(age_cat = "Adults")
+
+adult_beta_lactam_changes %>%
+  pander(split.table=Inf, digits=2, caption = "Adults from Western and South american tribes (age <= 18).\nLinear model fit by method of least-squares,\nReference level is Amerindian.\nFormula: logit(Abundance) ~ study.")
+  
+```
+
+Let's see what that looks like in our p-value graph.
+
+```{r dddd}
+for_plot <- adult_beta_lactam_changes %>% 
+  mutate(CI95_lwr = round(Estimate - 1.96*Std.Error, 2)) %>%
+  mutate(CI95_upr = round(Estimate + 1.96*Std.Error, 2)) %>%
+  mutate(FDR_cat = case_when(fdr < 0.01 ~ "p.adj < 0.01",
+                              fdr >= 0.01 & fdr < 0.02 ~ "0.01 <= p.adj < 0.02",
+                              fdr >= 0.02 & fdr < 0.03 ~ "0.02 <= p.adj < 0.03",
+                              fdr >= 0.03 & fdr < 0.04 ~ "0.03 <= p.adj < 0.04",
+                              fdr >= 0.04 & fdr < 0.05 ~ "0.04 <= p.adj < 0.05",
+                              fdr > 0.05 ~ "NS")) %>%
+  arrange(Estimate) %>%
+  mutate(Ortholog = factor(Ortholog, levels = Ortholog[order(Estimate)])) %>% 
+  mutate(ortho_def = paste(Ortholog, str_trunc(Definition, width = 20, side = "right"))) %>%
+  mutate(ortho_def = factor(ortho_def, levels = ortho_def[order(Estimate)]))
+
+g <- ggplot(for_plot, aes(Estimate, Ortholog, color = FDR_cat)) +
+  geom_point() +
+  geom_vline(xintercept = 0, linetype = "longdash") +
+  geom_errorbarh(aes(xmax = CI95_upr, xmin = CI95_lwr)) + 
+  theme(axis.text.y = element_text(size = 6),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6)) + 
+  labs(title = "Western adults compared to amerindian", 
+      subtitle = "Larger values equal greater gene abundance in Western microbiomes",
+       x = "Difference in logit-transformed KEGG ortholog abundance",
+       color = "FDR adjusted\np-value")
+
+plot(g)
+
+ggsave(plot = g, filename = here("Output","changes_in_beta_lactam_kegg_terms_all_adults.pdf"), device = "pdf")
+
+g <- ggplot(for_plot, aes(Estimate, ortho_def, color = FDR_cat)) +
+  geom_point() +
+  geom_vline(xintercept = 0, linetype = "longdash") +
+  geom_errorbarh(aes(xmax = CI95_upr, xmin = CI95_lwr)) + 
+  theme(axis.text.y = element_text(size = 6),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6)) + 
+  labs(title = "Western adults compared to amerindian", 
+      subtitle = "Larger values equal greater gene abundance in Western microbiomes",
+       x = "Difference in logit-transformed KEGG ortholog abundance",
+       color = "FDR adjusted\np-value",
+       y = "KEGG ortholog and partial definition")
+
+plot(g)
+
+beta_lactam_adult_plot_data <- for_plot
+
+```
+
+# Figure 5C and D
+
+```{r fig5C}
+
+all_pathway_changes <- children_pathway_changes %>%
+  mutate(age_cat = "Children") %>%
+  bind_rows(adult_pathway_changes %>% mutate(age_cat = "Adults"))
+
+order_I_want <- all_pathway_changes %>% arrange(Estimate) %>% pull(Pathway) %>% unique() %>% as.character()
+
+all_pathway_changes %<>%
+  mutate(Pathway = fct_relevel(Pathway, order_I_want))
+
+#only_in_children <- setdiff(children_pathway_changes$Pathway, adult_pathway_changes$Pathway)
+#only_in_adults <- setdiff(adult_pathway_changes$Pathway, children_pathway_changes$Pathway)
+
+g <- ggplot(all_pathway_changes, aes(Estimate, Pathway, color = FDR_cat)) +
+  geom_point() +
+  geom_vline(xintercept = 0, linetype = "longdash") +
+  geom_errorbarh(aes(xmax = CI95_upr, xmin = CI95_lwr)) + 
+  theme(axis.text.y = element_text(size = 6),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6)) + 
+  facet_wrap(~age_cat) +
+  labs(x = "Difference in logit-transformed KEGG pathway abundance",
+       color = "FDR adjusted\np-value") 
+plot(g)
+
+# title = "Western compared to amerindian microbiomes",
+#        subtitle = "Larger values equal greater gene abundance in Western microbiomes",
+
+ggsave(plot = g, filename = here("Output","Fig5C.pdf"), device = "pdf", width = 9, height = 8, useDingbats=F)
+
+```
+
+```{r fig5D}
+
+all_beta_lactam <- bind_rows(beta_lactam_adult_plot_data, beta_lactam_children_plot_data)
+
+s_toPlot <- all_md_4 %>%
+  mutate(study = if_else(str_detect(study, "Western"), "Western", study)) %>%
+  mutate(age_cat = if_else(age_class %in% c("Age > 18 yrs"), "Adults", "Children"))
+
+ko_toPlot <- bind_rows(Western_kegg, dynamic_kegg, bello_kegg) %>%
+  filter(!str_detect(geneID, ",")) %>%
+  pivot_wider(id_cols = SampleID, names_from = geneID, values_from = sum_by_kegg_term, values_fill = list(sum_by_kegg_term = 0)) %>%
+  pivot_longer(-SampleID, names_to = "Ortholog", values_to = "Abundance") %>%
+  inner_join((prokarotic_paths %>% filter(PathwayName %in% "beta-Lactam resistance")), by = "Ortholog") %>%
+  select(SampleID, Ortholog, Abundance, PathwayName) 
+
+props_toPlot <- ko_toPlot %>%
+  group_by(SampleID) %>%
+  summarise(x = sum(Abundance)) %>%
+  left_join(ko_toPlot, by="SampleID") %>%
+  mutate(props = Abundance / x) 
+
+props_toPlot <- fix_zeros(props_toPlot)
+
+my_data <- props_toPlot %>%
+  inner_join(s_toPlot, by = "SampleID") %>%
+  inner_join(all_beta_lactam, by = c("Ortholog", "age_cat")) %>%
+  mutate(Direction = if_else(Estimate > 0, "Increasing", "Decreasing")) %>%
+  filter(!FDR_cat %in% "NS")
+
+# my_data %>%
+#   group_by(Ortholog, study) %>%
+#   summarize(mean = mean(props), median = median(props)) %>%
+#   #select(Ortholog, study, mean, median, props) %>%
+#   filter(mean > 1E-4) %>%
+#   view()
+
+my_data %>%
+  ggplot(aes(x=Ortholog, y=props, color=study)) + #, color=SubStudy
+    #geom_boxplot(outlier.alpha = 0) +
+    geom_quasirandom(dodge.width = 0.75) +
+  stat_summary(aes(group = study), fun = median, fun.min = median, fun.max = median,
+                 geom = "crossbar", width = 0.7, color = "black", lwd = 0.2,
+               position=position_dodge(width=0.75)) +
+    theme_bw() +
+    theme(
+      #axis.text.x = element_text(angle=45, vjust=1, hjust=1),
+      strip.background = element_blank()) +
+    scale_color_brewer(palette = "Set2") +
+    scale_y_continuous(trans = "logit") +
+    facet_grid(age_cat~Direction, scales = "free", space = "free") +
+    labs(x="", color="Geography",
+         y="Relative abundance") +
+  scale_x_discrete(guide = guide_axis(n.dodge = 3))
+
+ggsave(filename = here("Output","Fig5D.pdf"), device = "pdf", width = 9, height = 7, useDingbats=F)
+
+```
+
+
+
+
+<!-- Old Stuff -->
+
+```{r, eval=FALSE, include=FALSE}
+s_toPlot <- s2 %>%
+  filter(Keep) %>%
+  filter(!isControl)
+#e.g. top_ko <- c("K21572", "K00001", "K01190", "K06147")
+
+if (file.exists(here("top_ko.RDS"))) {
+  
+  top_ko_desc <- read_rds(here("top_ko.RDS"))
+  
+  if (all(rownames(top_ko_desc) == names(sort(rowMeans(ko), decreasing = TRUE))[1:75])) {
+    
+    top_ko <- rownames(top_ko_desc)
+  
+  } 
+  
+  } else {
+  
+  top_ko <- names(sort(rowMeans(ko), decreasing = TRUE))[1:75]
+
+  top_ko_desc <- tibble(ko = top_ko, desc = "")
+
+  for(i in top_ko) {
+
+    top_ko_desc %<>%
+    mutate(desc = if_else(top_ko == i, keggGet(i)[[1]]$DEFINITION, desc))
+  
+  }
+  
+  top_ko_desc %<>%
+    column_to_rownames(var = "ko")
+  
+  write_rds(top_ko_desc, here("top_ko.RDS"))
+}
+
+ko_heatmap <- ko[rownames(ko) %in% top_ko,]
+
+row.names(ko_heatmap) <- top_ko_desc[row.names(ko_heatmap),]
+
+## group the SampleIDs
+grps <- c(color_by, shape_by)
+s_toPlot %<>% arrange(study_group, ethnicity)
+
+#s_toPlot %>% arrange(list(!!! grps)) ##doesnt work!!!
+ko_heatmap <- ko_heatmap[, s_toPlot$SampleID]
+
+anno <- s_toPlot[,grps] %>% as.data.frame()
+rownames(anno) <- s_toPlot$SampleID
+colnames(anno) <- grps  
+
+pheatmap(
+  ko_heatmap[,s_toPlot$SampleID],
+  annotation = anno,
+  color = saturated_rainbow(100, saturation_limit = 0.25),
+  breaks = c(0, 1e-10, seq(0.001, 0.1, length.out = 99)),
+  filename = here("Output","gene_function_assignments.pdf"),
+  clustering_distance_rows = "canberra",
+  cluster_cols = F,
+  #clustering_distance_cols = "canberra",
+  cellwidth = 9, cellheight = 9, fontsize = 10)
+
+pheatmap(
+  ko_heatmap[,s_toPlot$SampleID],
+  color = saturated_rainbow(100, saturation_limit = 0.25),
+  breaks = c(0, 1e-10, seq(0.001, 0.1, length.out = 99)),
+  clustering_distance_rows = "canberra",
+  clustering_distance_cols = "canberra",
+  cellwidth = 9, cellheight = 9, fontsize = 10)
+
+```
+
+<!-- Additionally, a heatmap with just adult samples (age > 16) is included as `gene_function_assignments_adults_only.pdf`. -->
+
+```{r, eval=FALSE, include=FALSE}
+s_toPlot <- s2 %>%
+  filter(Keep) %>%
+  filter(!isControl)
+#e.g. top_ko <- c("K21572", "K00001", "K01190", "K06147")
+if (file.exists(here("top_ko.RDS"))) {
+  
+  top_ko_desc <- read_rds(here("top_ko.RDS"))
+  
+  if (all(rownames(top_ko_desc) == names(sort(rowMeans(ko), decreasing = TRUE))[1:75])) {
+    
+    top_ko <- rownames(top_ko_desc)
+  
+  } 
+  
+  } else {
+  
+  top_ko <- names(sort(rowMeans(ko), decreasing = TRUE))[1:75]
+
+  top_ko_desc <- tibble(ko = top_ko, desc = "")
+
+  for(i in top_ko) {
+
+    top_ko_desc %<>%
+    mutate(desc = if_else(top_ko == i, keggGet(i)[[1]]$DEFINITION, desc))
+  
+  }
+  
+  top_ko_desc %<>%
+    column_to_rownames(var = "ko")
+  
+  write_rds(top_ko_desc, here("top_ko.RDS"))
+}
+
+ko_heatmap <- ko[rownames(ko) %in% top_ko,]
+
+row.names(ko_heatmap) <- top_ko_desc[row.names(ko_heatmap),]
+
+## group the SampleIDs
+grps <- c(color_by, shape_by)
+s_toPlot %<>% arrange(study_group, ethnicity)
+
+s_toPlot %<>%
+  mutate(study_group = fct_relevel(study_group, "LowUrban")) %>%
+  mutate(age = as.numeric(age)) %>%
+  filter(age > 16)
+
+#s_toPlot %>% arrange(list(!!! grps)) ##doesnt work!!!
+ko_heatmap <- ko_heatmap[, s_toPlot$SampleID]
+
+anno <- s_toPlot[,grps] %>% as.data.frame()
+rownames(anno) <- s_toPlot$SampleID
+colnames(anno) <- grps  
+
+pheatmap(
+  ko_heatmap[,s_toPlot$SampleID],
+  annotation = anno,
+  color = saturated_rainbow(100, saturation_limit = 0.25),
+  breaks = c(0, 1e-10, seq(0.001, 0.1, length.out = 99)),
+  filename = here("Output","gene_function_assignments_adults_only.pdf"),
+  clustering_distance_rows = "canberra",
+  cluster_cols = F,
+  #clustering_distance_cols = "canberra",
+  cellwidth = 9, cellheight = 9, fontsize = 10)
+
+pheatmap(
+  ko_heatmap[,s_toPlot$SampleID],
+  color = saturated_rainbow(100, saturation_limit = 0.25),
+  breaks = c(0, 1e-10, seq(0.001, 0.1, length.out = 99)),
+  clustering_distance_rows = "canberra",
+  clustering_distance_cols = "canberra",
+  cellwidth = 9, cellheight = 9, fontsize = 10)
+
+```
+
+# CARD database analysis
+
+```{r loading CARD data}
+
+base_dir = here("Data","bello_functional_results","20190830_protein_fasta_protein_homolog_model")
+
+s_seq <- s_bello %>%
+  left_join(preprocess, by = c("SampleID" = "Samples")) %>%
+  select(SampleID, nonhost)
+
+bello_CARD <- read_table_if_no_rds(bello_CARD, rds_file_name = "bello_CARD.rds", base_dir, s_seq)
+
+base_dir = here("Data","dynamic_functional_results","20190830_protein_fasta_protein_homolog_model")
+
+s_seq <- other_md %>%
+  select(SampleID)
+
+dynamic_CARD <- read_table_if_no_rds(dynamic_CARD, "dynamic_CARD_counts.rds", base_dir, s_seq)
+
+base_dir = here("Data","ccm_functional_results","20190830_protein_fasta_protein_homolog_model")
+
+s_seq <- Western_samples %>%
+  select(SampleID)
+
+Western_CARD <- read_table_if_no_rds(Western_CARD, "Western_CARD.rds", base_dir,s_seq)
+
+card_annotation <- read_tsv(here("Data","aro_categories_index.tsv"))
+
+# bello_CARD %>%
+#   inner_join(card_annotation, by = c("geneID" = "Protein Accession")) %>%
+#   count(`AMR Gene Family`, `Drug Class`, `Resistance Mechanism`)
+  
+```
+
+## Amerindians
+
+### Children
+
+#### Bray-curtis PCoA
+
+```{r}
+age_cutoff = 18
+color_by = "study_group"
+shape_by = "age_class"
+```
+
+Let's also view this comparison as a PCoA graph.
+
+```{r}
+
+s_toPlot <- s_bello %>%
+  filter(age <= age_cutoff)
+
+card_children <- bello_CARD %>%
+  select(Term = geneID, Count = sum_by_term, SampleID) %>%
+  spread_to_numeric_matrix(., "Term", "SampleID", "Count")
+
+bc_CARD <- vegdist(t(card_children))
+
+dist_in <- usedist::dist_subset(bc_CARD, s_toPlot$SampleID)
+
+make_pcoa_plot_with_closed_and_open_circles_for_points(dist_in, s_toPlot, color_by=color_by, shape_by=shape_by)
+  
+```
+
+##### Permanova of amerindian children with Bray-curtis distance
+
+Again, we run Permanova on the centers of the dispersions. We also compare the dispersions (spread) of the distances for each group.
+
+```{r}
+
+adtable <- adonis(dist_in ~ s_toPlot$study_group)
+
+as.data.frame(adtable$aov.tab) %>%
+pander(split.table=Inf, digits=2, caption = "Permanova for differences in urbanicity")
+
+betatable <- betadisper(dist_in, s_toPlot$study_group)
+
+betatable
+
+```
+
+
+#### Jaccard PCoA
+
+Here, we compare dissimilartiy of species presence / absence.
+
+```{r}
+
+jaccard_CARD <- vegdist(t(card_children), binary = T)
+
+dist_in <- usedist::dist_subset(jaccard_CARD, s_toPlot$SampleID)
+
+make_pcoa_plot_with_closed_and_open_circles_for_points(dist_in, s_toPlot, color_by=color_by, shape_by=shape_by)
+
+```
+
+##### Permanova of amerindian children with Jaccard distance
+
+Again, we run Permanova on the centers of the dispersions. We also compare the dispersions (spread) of the distances for each group.
+
+```{r}
+
+adtable <- adonis(dist_in ~ s_toPlot$study_group)
+
+as.data.frame(adtable$aov.tab) %>%
+pander(split.table=Inf, digits=2, caption = "Permanova for differences in urbanicity")
+
+betatable <- betadisper(dist_in, s_toPlot$study_group)
+
+betatable
+
+```
+
+
+#### Linear models
+
+lm within Amerindian children. filtering to average gene abundance > 0.01%
+
+```{r}
+
+card_to_test <- bello_CARD %>%
+  filter(!str_detect(geneID, ",")) %>%
+  pivot_wider(id_cols = SampleID, names_from = geneID, values_from = sum_by_term, values_fill = list(sum_by_term = 0)) %>%
+  pivot_longer(-SampleID, names_to = "geneID", values_to = "Abundance") %>%
+  select(SampleID, geneID, Abundance) 
+
+props_toTest <- card_to_test %>%
+  group_by(SampleID) %>%
+  summarise(x = sum(Abundance)) %>%
+  left_join(card_to_test, by="SampleID") %>%
+  mutate(props = Abundance / x) 
+
+props_filtered <- props_toTest %>%
+  group_by(geneID) %>%
+  summarise(mean_prop = mean(props)) %>%
+  filter(mean_prop > 0.0001) %>%
+  left_join(props_toTest, by = "geneID")
+
+props_filtered <- fix_zeros(props_filtered)
+
+urban_func_tests <- function() {
+  
+s_toTest <- resetSampleSheet(s_bello)
+
+s_toTest %<>%
+  mutate(study_group = fct_relevel(study_group, "LowUrban")) %>%
+  mutate(age = as.numeric(age)) %>%
+  filter(age <= 18)
+
+form1 <- "props_logit ~ study_group"
+
+summaries_df <- run_lm_on_props(factor_to_test = "geneID", props_filtered, s_toTest, form1, 0.05) 
+
+return(summaries_df)
+}
+
+urban_func_tests() %>%
+  mutate(term = gsub("study_group","",term)) %>%
+    left_join((card_annotation %>% select(`Protein Accession`, `AMR Gene Family`)), by = c("geneID" = "Protein Accession")) %>%
+    arrange(fdr) %>%
+  mutate(geneID = factor(geneID, levels = geneID[order(fdr)])) %>%
+  pander(split.table=Inf, digits=2, caption = "Children tribal members (age <= 18).\nLinear model fit by method of least-squares,\nReference level is LowUrban.\nFormula: logit(Abundance) ~ Medium/LowUrban.")
+
+```
+
+```{r, fig.height=10, fig.width=8}
+
+summaries_df <- urban_func_tests() %>%
+  mutate(term = gsub("study_group","",term)) %>%
+  mutate(CI95_lwr = round(Estimate - 1.96*Std.Error, 2)) %>%
+  mutate(CI95_upr = round(Estimate + 1.96*Std.Error, 2)) %>%
+  mutate(FDR_cat = case_when(fdr < 0.01 ~ "p.adj < 0.01",
+                              fdr >= 0.01 & fdr < 0.02 ~ "0.01 <= p.adj < 0.02",
+                              fdr >= 0.02 & fdr < 0.03 ~ "0.02 <= p.adj < 0.03",
+                              fdr >= 0.03 & fdr < 0.04 ~ "0.03 <= p.adj < 0.04",
+                              fdr >= 0.04 & fdr < 0.05 ~ "0.04 <= p.adj < 0.05",
+                              fdr > 0.05 ~ "NS")) %>%
+  arrange(Estimate) %>%
+  mutate(geneID = factor(geneID, levels = geneID[order(Estimate)]))
+
+g <- ggplot(summaries_df, aes(Estimate, geneID, color = FDR_cat)) +
+  geom_point() +
+  geom_vline(xintercept = 0, linetype = "longdash") +
+  geom_errorbarh(aes(xmax = CI95_upr, xmin = CI95_lwr)) + 
+  theme(axis.text.y = element_text(size = 6),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6)) + 
+  labs(title = "Amerindian children urbanicity",
+       subtitle = "Larger values equal greater gene abundance in medium urban",
+       x = "Difference in logit-transformed CARD gene abundance",
+       color = "FDR adjusted\np-value") 
+plot(g)
+
+ggsave(plot = g, filename = here("Output","card_gene_changes_amerindian_children.pdf"), device = "pdf")
+
+```
+
+
+### Adults
+
+Now, let us do the same thing with the Adult tribal members.
+
+#### Bray-curtis PCoA
+
+Let's also view this comparison as a PCoA graph.
+
+```{r}
+
+s_toPlot <- s_bello %>%
+  filter(age > age_cutoff)
+
+card_adults <- bello_CARD %>%
+  select(Term = geneID, Count = sum_by_term, SampleID) %>%
+  spread_to_numeric_matrix(., "Term", "SampleID", "Count")
+
+bc_CARD <- vegdist(t(card_adults))
+
+dist_in <- usedist::dist_subset(bc_CARD, s_toPlot$SampleID)
+
+make_pcoa_plot_with_closed_and_open_circles_for_points(dist_in, s_toPlot, color_by=color_by, shape_by=shape_by)
+  
+```
+
+##### Permanova of amerindian adults with Bray-curtis distance
+
+Again, we run Permanova on the centers of the dispersions. We also compare the dispersions (spread) of the distances for each group.
+
+```{r}
+
+adtable <- adonis(dist_in ~ s_toPlot$study_group)
+
+as.data.frame(adtable$aov.tab) %>%
+pander(split.table=Inf, digits=2, caption = "Permanova for differences in urbanicity")
+
+betatable <- betadisper(dist_in, s_toPlot$study_group)
+
+betatable
+
+```
+
+
+#### Jaccard PCoA
+
+Here, we compare dissimilartiy of species presence / absence.
+
+```{r}
+
+jaccard_CARD <- vegdist(t(card_adults), binary = T)
+
+dist_in <- usedist::dist_subset(jaccard_CARD, s_toPlot$SampleID)
+
+make_pcoa_plot_with_closed_and_open_circles_for_points(dist_in, s_toPlot, color_by=color_by, shape_by=shape_by)
+
+```
+
+##### Permanova of amerindian adults with Jaccard distance
+
+Again, we run Permanova on the centers of the dispersions. We also compare the dispersions (spread) of the distances for each group.
+
+```{r}
+
+adtable <- adonis(dist_in ~ s_toPlot$study_group)
+
+as.data.frame(adtable$aov.tab) %>%
+pander(split.table=Inf, digits=2, caption = "Permanova for differences in urbanicity")
+
+betatable <- betadisper(dist_in, s_toPlot$study_group)
+
+betatable
+
+```
+
+#### Linear models
+
+```{r}
+
+urban_func_tests <- function() {
+  
+s_toTest <- resetSampleSheet(s_bello)
+
+s_toTest %<>%
+  mutate(study_group = fct_relevel(study_group, "LowUrban")) %>%
+  mutate(age = as.numeric(age)) %>%
+  filter(age > 18)
+
+form1 <- "props_logit ~ study_group"
+
+summaries_df <- run_lm_on_props(factor_to_test = "geneID", props_filtered, s_toTest, form1, 0.05) 
+
+return(summaries_df)
+}
+
+urban_func_tests() %>%
+  mutate(term = gsub("study_group","",term)) %>%
+    left_join((card_annotation %>% select(`Protein Accession`, `AMR Gene Family`)), by = c("geneID" = "Protein Accession")) %>%
+    arrange(fdr) %>%
+  mutate(geneID = factor(geneID, levels = geneID[order(fdr)])) %>%
+  pander(split.table=Inf, digits=2, caption = "Adult tribal members (age > 18).\nLinear model fit by method of least-squares,\nReference level is LowUrban.\nFormula: logit(Abundance) ~ Medium/LowUrban.")
+
+```
+
+```{r, fig.height=10, fig.width=8}
+
+summaries_df <- urban_func_tests() %>%
+  mutate(term = gsub("study_group","",term)) %>%
+  mutate(CI95_lwr = round(Estimate - 1.96*Std.Error, 2)) %>%
+  mutate(CI95_upr = round(Estimate + 1.96*Std.Error, 2)) %>%
+  mutate(FDR_cat = case_when(fdr < 0.01 ~ "p.adj < 0.01",
+                              fdr >= 0.01 & fdr < 0.02 ~ "0.01 <= p.adj < 0.02",
+                              fdr >= 0.02 & fdr < 0.03 ~ "0.02 <= p.adj < 0.03",
+                              fdr >= 0.03 & fdr < 0.04 ~ "0.03 <= p.adj < 0.04",
+                              fdr >= 0.04 & fdr < 0.05 ~ "0.04 <= p.adj < 0.05",
+                              fdr > 0.05 ~ "NS")) %>%
+  arrange(Estimate) %>%
+  mutate(geneID = factor(geneID, levels = geneID[order(Estimate)]))
+
+g <- ggplot(summaries_df, aes(Estimate, geneID, color = FDR_cat)) +
+  geom_point() +
+  geom_vline(xintercept = 0, linetype = "longdash") +
+  geom_errorbarh(aes(xmax = CI95_upr, xmin = CI95_lwr)) + 
+  theme(axis.text.y = element_text(size = 6),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6)) + 
+  labs(title = "Amerindian adults urbanicity",
+       subtitle = "Larger values equal greater gene abundance in medium urban",
+       x = "Difference in logit-transformed CARD gene abundance",
+       color = "FDR adjusted\np-value") 
+plot(g)
+
+ggsave(plot = g, filename = here("Output","card_gene_changes_amerindian_adults.pdf"), device = "pdf")
+
+```
+
+## Amerindian vs Western
+
+### Children
+
+#### Bray-curtis PCoA
+
+```{r}
+color_by = "study"
+shape_by = "age_class"
+```
+
+Let's also view this comparison as a PCoA graph.
+
+```{r}
+
+s_toPlot <- all_md_4 %>%
+  filter(age_class %in% c("Age < 5 yrs","5 yrs <= Age <= 18 yrs"))
+
+card_children <- bello_CARD %>%
+  bind_rows(dynamic_CARD) %>%
+  select(Term = geneID, Count = sum_by_term, SampleID) %>%
+  spread_to_numeric_matrix(., "Term", "SampleID", "Count")
+
+bc_CARD <- vegdist(t(card_children))
+
+dist_in <- usedist::dist_subset(bc_CARD, s_toPlot$SampleID)
+
+make_pcoa_plot_with_closed_and_open_circles_for_points(dist_in, s_toPlot, color_by=color_by, shape_by=shape_by)
+  
+```
+
+#### Permanova of amerindian children to western children
+
+Again, we run Permanova on the centers of the dispersions. We also compare the dispersions (spread) of the distances for each group.
+
+```{r}
+
+adtable <- adonis(dist_in ~ s_toPlot$study)
+
+as.data.frame(adtable$aov.tab) %>%
+pander(split.table=Inf, digits=2, caption = "Permanova for differences in culture / geography")
+
+betatable <- betadisper(dist_in, s_toPlot$study)
+
+betatable
+
+```
+#### Jaccard PCoA
+
+Here, we compare dissimilartiy of species presence / absence.
+
+```{r}
+
+jaccard_CARD <- vegdist(t(card_children), binary = T)
+
+dist_in <- usedist::dist_subset(jaccard_CARD, s_toPlot$SampleID)
+
+make_pcoa_plot_with_closed_and_open_circles_for_points(dist_in, s_toPlot, color_by=color_by, shape_by=shape_by)
+
+```
+
+#### Permanova of amerindian children to western children
+
+Again, we run Permanova on the centers of the dispersions. We also compare the dispersions (spread) of the distances for each group.
+
+```{r}
+
+adtable <- adonis(dist_in ~ s_toPlot$study)
+
+as.data.frame(adtable$aov.tab) %>%
+pander(split.table=Inf, digits=2, caption = "Permanova for differences in culture / geography")
+
+betatable <- betadisper(dist_in, s_toPlot$study)
+
+betatable
+
+```
+
+#### Linear models
+
+Here, we will construct similar linear models as before, but here the antibiotic-related gene abundances will be tested for changes based on whether the participant is Western or Amerindian. This will be done on genes that have a mean abundance greater than 0.1%. See CARD_genes_children_comparison.tsv file for full results including drug classe(s).
+
+```{r}
+
+s_toTest <- all_md_4 %>%
+  filter(age_class %in% c("Age < 5 yrs","5 yrs <= Age <= 18 yrs")) %>%
+  mutate(study = as.factor(study))
+
+card_to_test <- bind_rows(dynamic_CARD, bello_CARD) %>%
+  filter(!str_detect(geneID, ",")) %>%
+  pivot_wider(id_cols = SampleID, names_from = geneID, values_from = sum_by_term, values_fill = list(sum_by_term = 0)) %>%
+  pivot_longer(-SampleID, names_to = "geneID", values_to = "Abundance") %>%
+  select(SampleID, geneID, Abundance) 
+
+props_toTest <- card_to_test %>%
+  group_by(SampleID) %>%
+  summarise(x = sum(Abundance)) %>%
+  left_join(card_to_test, by="SampleID") %>%
+  mutate(props = Abundance / x) 
+
+props_filtered <- props_toTest %>%
+  group_by(geneID) %>%
+  summarise(mean_prop = mean(props)) %>%
+  filter(mean_prop > 0.001) %>%
+  left_join(props_toTest, by = "geneID")
+
+props_filtered <- fix_zeros(props_filtered)
+
+form1 <- "props_logit ~ study"
+
+summaries_df <- run_lm_on_props(factor_to_test = "geneID", props_filtered, s_toTest, form1, 0.05) 
+
+summaries_df %>%
+  mutate(term = gsub("study","",term)) %>%
+  arrange(desc(Estimate)) %>%
+  mutate(geneID = factor(geneID, levels = geneID[order(desc(Estimate))])) %>%
+  pander(split.table=Inf, digits=2, caption = "Children from Western and South american tribes (age <= 18).\nLinear model fit by method of least-squares,\nReference level is Amerindian.\nFormula: logit(Abundance) ~ study.")
+
+summaries_df %>%
+  mutate(term = gsub("study","",term)) %>%
+  left_join(card_annotation, by = c("geneID" = "Protein Accession")) %>%
+  write_tsv(here("Output","CARD_genes_children_comparison.tsv"))
+  
+
+```
+
+
+```{r, fig.height=10, fig.width=8}
+
+summaries_df %<>%
+  mutate(term = gsub("study_group","",term)) %>%
+  mutate(CI95_lwr = round(Estimate - 1.96*Std.Error, 2)) %>%
+  mutate(CI95_upr = round(Estimate + 1.96*Std.Error, 2)) %>%
+  mutate(FDR_cat = case_when(fdr < 0.01 ~ "p.adj < 0.01",
+                              fdr >= 0.01 & fdr < 0.02 ~ "0.01 <= p.adj < 0.02",
+                              fdr >= 0.02 & fdr < 0.03 ~ "0.02 <= p.adj < 0.03",
+                              fdr >= 0.03 & fdr < 0.04 ~ "0.03 <= p.adj < 0.04",
+                              fdr >= 0.04 & fdr < 0.05 ~ "0.04 <= p.adj < 0.05",
+                              fdr > 0.05 ~ "NS")) %>%
+  arrange(Estimate) %>%
+  mutate(geneID = factor(geneID, levels = geneID[order(Estimate)]))
+
+g <- ggplot(summaries_df, aes(Estimate, geneID, color = FDR_cat)) +
+  geom_point() +
+  geom_vline(xintercept = 0, linetype = "longdash") +
+  geom_errorbarh(aes(xmax = CI95_upr, xmin = CI95_lwr)) + 
+  theme(axis.text.y = element_text(size = 6),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6)) + 
+  labs(title = "Amerindian children vs western",
+       subtitle = "Larger values equal greater gene abundance in western children",
+       x = "Difference in logit-transformed CARD gene abundance",
+       color = "FDR adjusted\np-value") 
+plot(g)
+
+ggsave(plot = g, filename = here("Output","card_gene_changes_amerindian_vs_western_children.pdf"), device = "pdf")
+
+```
+
+
+### Adults
+
+#### Bray-curtis PCoA
+
+```{r}
+color_by = "study"
+shape_by = "age_class"
+```
+
+Let's also view this comparison as a PCoA graph.
+
+```{r}
+
+s_toPlot <- all_md_4 %>%
+  filter(age_class %in% c("Age > 18 yrs"))
+
+card_adults <- bello_CARD %>%
+  bind_rows(Western_CARD) %>%
+  select(Term = geneID, Count = sum_by_term, SampleID) %>%
+  spread_to_numeric_matrix(., "Term", "SampleID", "Count")
+
+bc_CARD <- vegdist(t(card_adults))
+
+dist_in <- usedist::dist_subset(bc_CARD, s_toPlot$SampleID)
+
+make_pcoa_plot_with_closed_and_open_circles_for_points(dist_in, s_toPlot, color_by=color_by, shape_by=shape_by)
+  
+```
+
+#### Permanova of amerindian adults to western adults
+
+Again, we run Permanova on the centers of the dispersions. We also compare the dispersions (spread) of the distances for each group.
+
+```{r}
+
+adtable <- adonis(dist_in ~ s_toPlot$study)
+
+as.data.frame(adtable$aov.tab) %>%
+pander(split.table=Inf, digits=2, caption = "Permanova for differences in culture / geography")
+
+betatable <- betadisper(dist_in, s_toPlot$study)
+
+betatable
+
+```
+
+
+#### Jaccard PCoA
+
+Here, we compare dissimilartiy of species presence / absence.
+
+```{r}
+
+jaccard_CARD <- vegdist(t(card_adults), binary = T)
+
+dist_in <- usedist::dist_subset(jaccard_CARD, s_toPlot$SampleID)
+
+make_pcoa_plot_with_closed_and_open_circles_for_points(dist_in, s_toPlot, color_by=color_by, shape_by=shape_by)
+
+```
+
+#### Permanova of amerindian adults to western adults
+
+Again, we run Permanova on the centers of the dispersions. We also compare the dispersions (spread) of the distances for each group.
+
+```{r}
+
+adtable <- adonis(dist_in ~ s_toPlot$study)
+
+as.data.frame(adtable$aov.tab) %>%
+pander(split.table=Inf, digits=2, caption = "Permanova for differences in culture / geography")
+
+betatable <- betadisper(dist_in, s_toPlot$study)
+
+betatable
+
+```
+
+
+#### Linear models
+
+Here, we will construct similar linear models as before, but here the antibiotic-related gene abundances will be tested for changes based on whether the participant is Western or Amerindian. This will be done on genes that have a mean abundance greater than 0.1%. See CARD_genes_children_comparison.tsv file for full results including drug classe(s).
+
+```{r}
+
+s_toTest <- all_md_4 %>%
+  filter(age_class %in% c("Age > 18 yrs")) %>%
+  mutate(study = as.factor(study))
+
+card_to_test <- bind_rows(Western_CARD, bello_CARD) %>%
+  filter(!str_detect(geneID, ",")) %>%
+  pivot_wider(id_cols = SampleID, names_from = geneID, values_from = sum_by_term, values_fill = list(sum_by_term = 0)) %>%
+  pivot_longer(-SampleID, names_to = "geneID", values_to = "Abundance") %>%
+  select(SampleID, geneID, Abundance) 
+
+props_toTest <- card_to_test %>%
+  group_by(SampleID) %>%
+  summarise(x = sum(Abundance)) %>%
+  left_join(card_to_test, by="SampleID") %>%
+  mutate(props = Abundance / x) 
+
+props_filtered <- props_toTest %>%
+  group_by(geneID) %>%
+  summarise(mean_prop = mean(props)) %>%
+  filter(mean_prop > 0.001) %>%
+  left_join(props_toTest, by = "geneID")
+
+props_filtered <- fix_zeros(props_filtered)
+
+form1 <- "props_logit ~ study"
+
+summaries_df <- run_lm_on_props(factor_to_test = "geneID", props_filtered, s_toTest, form1, 0.05) 
+
+summaries_df %>%
+  mutate(term = gsub("study","",term)) %>%
+  arrange(desc(Estimate)) %>%
+  mutate(geneID = factor(geneID, levels = geneID[order(desc(Estimate))])) %>%
+  pander(split.table=Inf, digits=2, caption = "Children from Western and South american tribes (age <= 18).\nLinear model fit by method of least-squares,\nReference level is Amerindian.\nFormula: logit(Abundance) ~ study.")
+
+summaries_df %>%
+  mutate(term = gsub("study","",term)) %>%
+  left_join(card_annotation, by = c("geneID" = "Protein Accession")) %>%
+  write_tsv(here("Output","CARD_genes_adults_comparison.tsv"))
+  
+
+```
+
+```{r, fig.height=10, fig.width=8}
+
+summaries_df %<>%
+  mutate(term = gsub("study_group","",term)) %>%
+  mutate(CI95_lwr = round(Estimate - 1.96*Std.Error, 2)) %>%
+  mutate(CI95_upr = round(Estimate + 1.96*Std.Error, 2)) %>%
+  mutate(FDR_cat = case_when(fdr < 0.01 ~ "p.adj < 0.01",
+                              fdr >= 0.01 & fdr < 0.02 ~ "0.01 <= p.adj < 0.02",
+                              fdr >= 0.02 & fdr < 0.03 ~ "0.02 <= p.adj < 0.03",
+                              fdr >= 0.03 & fdr < 0.04 ~ "0.03 <= p.adj < 0.04",
+                              fdr >= 0.04 & fdr < 0.05 ~ "0.04 <= p.adj < 0.05",
+                              fdr > 0.05 ~ "NS")) %>%
+  arrange(Estimate) %>%
+  mutate(geneID = factor(geneID, levels = geneID[order(Estimate)]))
+
+g <- ggplot(summaries_df, aes(Estimate, geneID, color = FDR_cat)) +
+  geom_point() +
+  geom_vline(xintercept = 0, linetype = "longdash") +
+  geom_errorbarh(aes(xmax = CI95_upr, xmin = CI95_lwr)) + 
+  theme(axis.text.y = element_text(size = 6),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6)) + 
+  labs(title = "Amerindian adults vs western",
+       subtitle = "Larger values equal greater gene abundance in western adults",
+       x = "Difference in logit-transformed CARD gene abundance",
+       color = "FDR adjusted\np-value") 
+plot(g)
+
+ggsave(plot = g, filename = here("Output","card_gene_changes_amerindian_vs_western_adults.pdf"), device = "pdf")
+
+```
+
