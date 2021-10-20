@@ -52,8 +52,8 @@ library(here)
 
 ```{r functions}
 
-source(here("Scripts","Functions","common_functions.R"))
-source(here("Scripts","Functions","scott_daniel_useful_R_functions.R"))
+source(here("metagenomics","Scripts","Functions","common_functions.R"))
+source(here("metagenomics","Scripts","Functions","scott_daniel_useful_R_functions.R"))
 
 ```
 
@@ -69,23 +69,23 @@ min_reads <- 30000
 
 
 ### mapping file path
-mapping_file_fp <- here::here("bello_mapping_table_LCDM7AANXX.tsv")
+mapping_file_fp <- here::here("metagenomics/Data","bello_mapping_table_LCDM7AANXX.tsv")
 
 ### preprocess summary results filepath
-preprocess_fp <- here::here('preprocess_summary.tsv')
+preprocess_fp <- here::here("metagenomics/Data","preprocess_summary.tsv")
 
 ### kraken_summary
 
-kraken_summary_fp <- here::here('kraken_summary.txt')
+kraken_summary_fp <- here::here("metagenomics/Data","kraken_summary.txt")
 
 ### read quality
-fastqc_fp = here::here('fastqc_quality.tsv')
+fastqc_fp = here::here("metagenomics/Data","fastqc_quality.tsv")
 
 ### taxonomic assignment 
-feature_table_fp <- here::here("all_samples.tsv")
+feature_table_fp <- here::here("metagenomics/Data","all_samples.tsv")
 
 ### KEGG orthology assignment
-kegg_fp <- here::here("ko_assignments.tsv")
+kegg_fp <- here::here("metagenomics/Data","ko_assignments.tsv")
 ```
 
 ```{r sample_sheet_import, echo=FALSE}
@@ -125,7 +125,7 @@ kraken_unclass <- read.delim(kraken_summary_fp, header = F) %>%
   select(-Filename) %>%
   left_join((preprocess %>% select(SampleID = Samples, count_class = nonhost)), by = "SampleID")
 
-o <- read_qiime_otu_table(here::here("all_samples.tsv"))
+o <- read_qiime_otu_table(feature_table_fp)
 
 # Metadata in the form of truncated green genes assignments
 md <- sub("(; [kpcofgs]__)+$", "", o$metadata, perl=T)
@@ -168,7 +168,7 @@ preprocess %>%
       x="Number of read pairs in sample (millions, M)",
       y="Number of samples"
     )
-ggsave(here("Output","summary_dnabc.pdf"), width=7, height=5, useDingbats=F)
+ggsave(here("metagenomics","Output","summary_dnabc.pdf"), width=7, height=5, useDingbats=F)
 ```
 
 \newpage
@@ -201,7 +201,7 @@ qc_df %>%
     geom_point() +
     theme_bw() + 
     labs(x='Position in sequence read', y='Average quality score per sample')
-ggsave(here("Output",'quality_after.pdf'), width=7, height=5, useDingbats=F)
+ggsave(here("metagenomics","Output",'quality_after.pdf'), width=7, height=5, useDingbats=F)
 ```
 
 \newpage
@@ -228,7 +228,7 @@ preprocess %>%
     scale_x_continuous(expand=c(0,0)) +
     scale_y_continuous(expand=c(0,0), labels=scales:::percent) +
     labs(x="Samples", y="Percentage of reads", fill="")
-ggsave(here("Output",'preprocess_summary.pdf'), width=5, height=7, useDingbats=F)
+ggsave(here("metagenomics","Output",'preprocess_summary.pdf'), width=5, height=7, useDingbats=F)
 ```
 
 \newpage
@@ -255,7 +255,7 @@ kraken_unclass %>%
     scale_y_continuous(expand=c(0,0)) + #, labels=scales:::percent) +
     labs(x="Samples", y="Percentage of reads", fill="")
 
-ggsave(here("Output",'kraken_unclassified_summary.pdf'), width=5, height=7, useDingbats=F)
+ggsave(here("metagenomics","Output",'kraken_unclassified_summary.pdf'), width=5, height=7, useDingbats=F)
 ```
 
 \newpage
@@ -306,7 +306,7 @@ grps <- c("study_group","ethnicity","village")
 heatmap_grouped(props_toPlot, s_toPlot, grps=grps, option=2, prop_cut = prop_cut, satu_limit=satu_limit)
 
 
-heatmap_grouped(props_toPlot, s_toPlot, grps=grps, option=2, prop_cut = prop_cut, satu_limit=satu_limit, here("Output", heatmap_fp))
+heatmap_grouped(props_toPlot, s_toPlot, grps=grps, option=2, prop_cut = prop_cut, satu_limit=satu_limit, here("metagenomics","Output", heatmap_fp))
 
 
 ```
@@ -320,7 +320,7 @@ s_toPlot <- s2 %>%
 #props_toPlot <- summed_props[grep("phage|sapiens", rownames(summed_props), invert = T), s_toPlot$SampleID]
 props_toPlot <- summed_props[, s_toPlot$SampleID]
 
-heatmap_grouped(props_toPlot, s_toPlot, grps=grps, thre=0.01, option=2, prop_cut = prop_cut, satu_limit=satu_limit, here("Output", heatmap_fp_controls))
+heatmap_grouped(props_toPlot, s_toPlot, grps=grps, thre=0.01, option=2, prop_cut = prop_cut, satu_limit=satu_limit, here("metagenomics","Output", heatmap_fp_controls))
 
 ### top species
 # top <- top_table(props_toPlot, s_toPlot, thre=0.01, option=2, prop_cut = prop_cut)
@@ -553,18 +553,11 @@ richness_subsample_size <- 1000
 ### number of samples threshold to show heatmap on the page
 sample_threshold <- 100
 
-### setwd
-#fill in your project dir
-root_dir = "~/bello"
-
-### mapping file path
-mapping_file_fp <- here::here("bello_mapping_table_LCDM7AANXX.tsv")
-
 ### otu table file path
-feature_table_fp <- here::here( "rarified/table/feature-table.tsv")
+feature_table_fp <- here::here("metagenomics/Data","rarified/table/feature-table.tsv")
 
 ### taxonomic assignment 
-taxo_assignment_fp <- here::here( "taxonomy.tsv")
+taxo_assignment_fp <- here::here("metagenomics/Data","taxonomy.tsv")
 
 ```
 
@@ -659,7 +652,7 @@ grps <- c("study_group","ethnicity","village")
 ### grouped heatmap
 heatmap_grouped(props_toPlot, s_toPlot, grps=grps, thre=0.01, option=2, prop_cut = prop_cut, satu_limit=satu_limit)
 
-heatmap_grouped(props_toPlot, s_toPlot, grps=grps, thre=0.01, option=2, prop_cut = prop_cut, satu_limit=satu_limit, here("Output", heatmap_fp))
+heatmap_grouped(props_toPlot, s_toPlot, grps=grps, thre=0.01, option=2, prop_cut = prop_cut, satu_limit=satu_limit, here("metagenomics","Output", heatmap_fp))
 ```
 
 # Results based on kraken_tribal mapping.
@@ -668,13 +661,13 @@ Using an alternate database that included bacteria, archaea, protozoa, fungi, vi
 
 ```{r data import 2}
 
-kraken_unclass_t <- read.delim(here("tribal_kraken_summary.txt"), header = F) %>%
+kraken_unclass_t <- read.delim(here("metagenomics/Data","tribal_kraken_summary.txt"), header = F) %>%
   select(Filename = V1, percent_unclass = V2, count_unclass = V3) %>%
   mutate(SampleID = str_replace(Filename, fixed("-taxa.tsv"), "")) %>%
   select(-Filename) %>%
   left_join((preprocess %>% select(SampleID = Samples, count_class = nonhost)), by = "SampleID")
 
-o <- read_qiime_otu_table(here("tribal_all_samples.tsv"))
+o <- read_qiime_otu_table(here("metagenomics/Data","tribal_all_samples.tsv"))
 
 # Metadata in the form of truncated green genes assignments
 md <- sub("(; [kpcofgs]__)+$", "", o$metadata, perl=T)
@@ -718,7 +711,7 @@ kraken_unclass_combined %>%
     scale_x_continuous(expand=c(0,0)) +
     scale_y_continuous(expand=c(0,0)) + #, labels=scales:::percent) +
     labs(x="Samples", y="Percentage of reads", fill="", title = "Comparison of kraken databases")
-ggsave(here("Output",'kraken_unclassified_summary_kraken_tribal.pdf'), width=5, height=7, useDingbats=F)
+ggsave(here("metagenomics","Output",'kraken_unclassified_summary_kraken_tribal.pdf'), width=5, height=7, useDingbats=F)
 ```
 
 It looks like the custom databse had a slightly higher overall classification. A simple calculation shows this: Avg. unclassified percentage for kraken standard db vs. Avg. unclassificed percentage for kraken "tribal" db: `r paste0(mean(kraken_unclass$percent_unclass),"%")` vs. `r paste0(mean(kraken_unclass_t$percent_unclass),"%")`.
@@ -771,7 +764,7 @@ grps <- c("study_group","ethnicity","village")
 heatmap_grouped(props_toPlot, s_toPlot, grps=grps, option=2, prop_cut = prop_cut, satu_limit=satu_limit)
 
 
-heatmap_grouped(props_toPlot, s_toPlot, grps=grps, option=2, prop_cut = prop_cut, satu_limit=satu_limit, here("Output", heatmap_fp))
+heatmap_grouped(props_toPlot, s_toPlot, grps=grps, option=2, prop_cut = prop_cut, satu_limit=satu_limit, here("metagenomics","Output", heatmap_fp))
 
 
 ```
@@ -785,7 +778,7 @@ s_toPlot <- s2 %>%
 #props_toPlot <- summed_props[grep("phage|sapiens", rownames(summed_props), invert = T), s_toPlot$SampleID]
 props_toPlot <- summed_props[, s_toPlot$SampleID]
 
-heatmap_grouped(props_toPlot, s_toPlot, grps=grps, thre=0.01, option=2, prop_cut = prop_cut, satu_limit=satu_limit, here("Output", heatmap_fp_controls))
+heatmap_grouped(props_toPlot, s_toPlot, grps=grps, thre=0.01, option=2, prop_cut = prop_cut, satu_limit=satu_limit, here("metagenomics","Output", heatmap_fp_controls))
 
 ### top species
 # top <- top_table(props_toPlot, s_toPlot, thre=0.01, option=2, prop_cut = prop_cut)
@@ -824,7 +817,7 @@ clean_taxonomy <- function(props){
   props <- sweep(props, 2, colSums(props), "/")
 }
 
-o2 <- read_tsv(here("metaphlan_taxonomic_assignments.tsv")) %>%
+o2 <- read_tsv(here("metagenomics/Data","metaphlan_taxonomic_assignments.tsv")) %>%
   column_to_rownames(var = "Term") %>%
   clean_taxonomy()
 
@@ -858,7 +851,7 @@ metaphlan_prop_func <- function() {
     props <- props[grep('k__Bacteria', rownames(props)),]
     props <- sweep(props, 2, colSums(props), "/")
   }
-  o2 <- read_tsv(here("metaphlan_taxonomic_assignments.tsv")) %>%
+  o2 <- read_tsv(here("metagenomics/Data","metaphlan_taxonomic_assignments.tsv")) %>%
     column_to_rownames(var = "Term") %>%
     clean_taxonomy()
   # Metadata in the form of truncated green genes assignments
@@ -918,7 +911,7 @@ grps <- c("study_group","ethnicity","village")
 ### grouped heatmap
 heatmap_grouped(props_toPlot, s_toPlot, grps=grps, thre = thre, option=1, prop_cut = prop_cut, satu_limit=satu_limit)
 
-heatmap_grouped(props_toPlot, s_toPlot, grps=grps, thre = thre, option=1, prop_cut = prop_cut, satu_limit=satu_limit, here("Output", heatmap_fp))
+heatmap_grouped(props_toPlot, s_toPlot, grps=grps, thre = thre, option=1, prop_cut = prop_cut, satu_limit=satu_limit, here("metagenomics","Output", heatmap_fp))
 ```
 
 ## Bray-Curtis distance based on metaphlan
@@ -965,7 +958,7 @@ print(ad1)
 
 ```{r}
 
-metaphlan_hit_counts <- read_tsv(here("metaphlan_hit_counts.tsv"))
+metaphlan_hit_counts <- read_tsv(here("metagenomics/Data","metaphlan_hit_counts.tsv"))
 
 preprocess %>%
   mutate(actual_read_count = nonhost * 2) %>%
@@ -1407,7 +1400,7 @@ s_bello <- s2 %>%
   filter(!is.na(age))
 
 
-s_dynamic <- read_rds(here("s_feces.RDS"))
+s_dynamic <- read_rds(here("metagenomics/Data","s_feces.RDS"))
 
 dynamic_md <- s_dynamic %>%
   filter(study_group %in% c("Healthy>=6", "Healthy<6")) %>%
@@ -1499,13 +1492,13 @@ ggplot(all_md_2) +
 bello_props <- props
 
 #the other other metadata
-other_md <- read_tsv(here("dynamic_metaphlan_results","samples.tab")) %>%
+other_md <- read_tsv(here("metagenomics/Data","dynamic_metaphlan_results","samples.tab")) %>%
   rename(SampleID = tmp_sample) %>%
   filter(env_material == "Feces") %>%
   filter(study_group %in% c("Healthy under 5","Healthy over 5")) %>%
   mutate(study = "Western")
 
-metaphlan_dynamic <- read_tsv(here("dynamic_metaphlan_results","metaphlan_taxonomic_assignments.tsv"))
+metaphlan_dynamic <- read_tsv(here("metagenomics/Data","dynamic_metaphlan_results","metaphlan_taxonomic_assignments.tsv"))
 colnames(metaphlan_dynamic) <- str_replace(colnames(metaphlan_dynamic), "_review", "")
 
 metaphlan_healthy <- metaphlan_dynamic %>%
@@ -1653,7 +1646,7 @@ props_toPlot <- props_all[,all_md_3$SampleID]
 
 grps <- c("study","age_class")
 
-heatmap_grouped(props_toPlot, s_toPlot, grps=grps, option=2, prop_cut = prop_cut, satu_limit=satu_limit, here("Output", heatmap_fp))
+heatmap_grouped(props_toPlot, s_toPlot, grps=grps, option=2, prop_cut = prop_cut, satu_limit=satu_limit, here("metagenomics","Output", heatmap_fp))
 #, taxa = a
 
 ```
@@ -1662,7 +1655,7 @@ heatmap_grouped(props_toPlot, s_toPlot, grps=grps, option=2, prop_cut = prop_cut
 
 
 ```{r savepoint, eval=FALSE, include=FALSE}
-save.image(file = here("Data","2019-12-05_bello_data.RData"))
+save.image(file = here("metagenomics","Data","2019-12-05_bello_data.RData"))
 ```
 
 
@@ -1687,7 +1680,7 @@ library(here)
 rstudioapi::documentSaveAll()
 #notes
 #neat: you can run this following command in the console to give your reports custom names (or date-stamp them)
-rmarkdown::render(here('Scripts','Rmds','Bello_amerindian_peoples_metaphlan2_taxonomy_and_kegg_pathways.Rmd'),output_file = here('Output',paste0('Amerindian_peoples_microbiome_',Sys.Date(),'.pdf')))
+rmarkdown::render(here("metagenomics",'Scripts','Rmds','Bello_amerindian_peoples_metaphlan2_taxonomy_and_kegg_pathways.Rmd'),output_file = here('Output',paste0('Amerindian_peoples_microbiome_',Sys.Date(),'.pdf')))
 
 ```
 <!-- ===== -->
